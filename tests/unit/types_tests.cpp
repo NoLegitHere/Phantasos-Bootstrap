@@ -447,6 +447,8 @@ fun use(n: Int): Int8 {
     let deepValue = deep ?? none
     let parenthesized = found == (none)
     let kept = found ?? none
+    let branched = found ?? if n == 1 { find(2) } else { none }
+    let branchedInner = found ?? if n == 1 { 1 } else { 2 }
     if let picked: Int8 = if n == 1 { found } else { find(2) } { total += picked }
     return total + fallback + both
 }
@@ -456,6 +458,7 @@ fun use(n: Int): Int8 {
     CHECK(f.binding("both") == Type::Int8);
     for (const char* name : {"none1", "none2", "value", "pair", "strings", "parenthesized"}) CHECK(f.binding(name) == Type::Bool);
     CHECK(f.binding("deepValue") == Type{Type::Int8}.optional() && f.binding("kept") == Type{Type::Int8}.optional());
+    CHECK(f.binding("branched") == Type{Type::Int8}.optional() && f.binding("branchedInner") == Type::Int8);
     CHECK(f.binding("picked") == Type::Int8);
     const auto* use = ast::cast<ast::FunItem>(f.result.syntax->items[1]);
     // `none` takes the optional type it is compared with.

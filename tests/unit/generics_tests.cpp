@@ -194,7 +194,9 @@ let inherited: Derived<Int>
 let dependent = inherited.value
 )");
     CHECK(f.value("inference") == Type::Int && f.call("inference").inferred_type_arguments);
-    for (std::string_view name : {"constrained", "bounded", "noneArgument", "defaulted", "captured", "dependent"})
+    // `none` fits an explicit optional type argument.
+    CHECK(f.value("noneArgument") == Type{Type::Int}.optional());
+    for (std::string_view name : {"constrained", "bounded", "defaulted", "captured", "dependent"})
         CHECK(f.value(name) == Type::Deferred);
 }
 

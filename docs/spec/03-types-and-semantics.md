@@ -149,8 +149,9 @@ the fields that were already initialized are destroyed.
   `none`. The fallback has that inner type, or `opt`'s own type, in which
   case the result is still optional: `a ?? b ?? 0` tries `a`, then `b`. A
   `none` fallback takes the inner type when that is optional, and `opt`'s
-  type otherwise. A left operand that is not an optional, or is `none`
-  itself, is `E0404`.
+  type otherwise. A branching fallback (`if`, a block) takes the inner type
+  when every branch fits it, and `opt`'s type otherwise. A left operand that
+  is not an optional, or is `none` itself, is `E0404`.
 - `==` and `!=` compare an optional with `none`, with a value of its inner
   type (which lifts), or with another optional of the same type. Stage0
   checks this when the inner type is a built-in scalar or `String`; for

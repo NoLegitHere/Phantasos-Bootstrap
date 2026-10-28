@@ -3602,6 +3602,20 @@ private:
             const auto fallback = require(expr.rhs, target, expr.rhs->span);
             return fallback.type == Type::Error ? fallback : Value{target};
         }
+        if (branching(expr.rhs)) {
+            // Branches are checked through their tails: the inner type when they
+            // all fit it, else opt's own optional type.
+            const auto plain = probe(expressions_.at(expr.rhs), inner);
+            if (plain.deferred) return {};
+            if (!plain.matches) {
+                const auto chained = probe(expressions_.at(expr.rhs), lhs.type);
+                if (chained.deferred) return {};
+                if (chained.matches) {
+                    const auto fallback = require(expr.rhs, lhs.type, expr.rhs->span);
+                    return fallback.type == Type::Error ? fallback : Value{lhs.type};
+                }
+            }
+        }
         const auto rhs = require(expr.rhs, inner, expr.rhs->span);
         if (rhs.type == Type::Error) return rhs;
         if (unavailable(rhs)) return {};
@@ -3669,6 +3683,8 @@ private:
                 continue;
             }
             if (none_mismatch(index, target)) { result.matches = false; continue; }
+            // `none` fits any optional (3.6).
+            if (none_literal(nodes_[index].expr) && known(target) && target.optional_depth) continue;
             if (const auto* tuple = as<TupleExpr>(unparen(nodes_[index].expr)); tuple && target.kind == Type::Tuple) {
                 const auto& elements = types_.descriptor(target)->parameters;
                 if (elements.size() != tuple->elems.size()) { result.matches = false; continue; }

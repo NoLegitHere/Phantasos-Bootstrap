@@ -53,10 +53,10 @@
 
 ## Tests
 
-- `ctest --test-dir build/stage0 --output-on-failure` runs the C++ suites in
-  `bootstrap/stage0/tests/`, one per compiler area. CI runs them on both
+- `ctest --test-dir build --output-on-failure` runs the C++ suites in
+  `tests/unit/`, one per compiler area. CI runs them on both
   platforms and under AddressSanitizer and UndefinedBehaviorSanitizer.
-- Golden tests live in `tests/stage0/`. Each `*.phs` input has its expected
+- Golden tests live in `tests/golden/`. Each `*.phs` input has its expected
   output next to it:
 
   | Directory | Command | Expected output |

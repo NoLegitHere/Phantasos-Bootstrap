@@ -32,7 +32,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent / "stage0"
+ROOT = Path(__file__).resolve().parent / "golden"
 
 FRAGMENTS = [
     s.encode("utf-8")

@@ -1,8 +1,8 @@
-# Phantasos
+# Phantasos Bootstrap
 
-Phantasos is a programming language that compiles to native code. It is in
-early development: the language is specified in draft form, and the bootstrap
-compiler runs a growing subset of it on Linux x86_64.
+Phantasos is a programming language that compiles to native code. This
+repository holds its draft specification and the C++ bootstrap compiler,
+which runs a growing subset of the language on Linux x86_64.
 
 The design goals, from [ADR 0002](docs/adr/0002-foundational-decisions.md),
 are:
@@ -25,7 +25,7 @@ what is.
 
 ## Status
 
-Bootstrap phase P1. The stage0 compiler in [`bootstrap/stage0`](bootstrap/stage0)
+Bootstrap phase P1. The stage0 compiler in [`src`](src)
 is written in C++23 and builds and passes its tests on Windows x64 and Linux
 x86_64. It has:
 
@@ -63,9 +63,9 @@ fun main() {
 ```
 
 Structs, methods and tuples
-([`run/vectors.phs`](tests/stage0/run/vectors.phs),
-[`run/bank_account.phs`](tests/stage0/run/bank_account.phs),
-[`run/divmod.phs`](tests/stage0/run/divmod.phs)):
+([`run/vectors.phs`](tests/golden/run/vectors.phs),
+[`run/bank_account.phs`](tests/golden/run/bank_account.phs),
+[`run/divmod.phs`](tests/golden/run/divmod.phs)):
 
 ```phantasos
 struct Vec(x: Int, y: Int) {
@@ -84,9 +84,9 @@ fun main(): Int {
 
 Functions are values: they can be passed, returned, stored in fields and
 called through a variable
-([`run/higher_order.phs`](tests/stage0/run/higher_order.phs),
-[`run/calculator.phs`](tests/stage0/run/calculator.phs),
-[`run/sorting.phs`](tests/stage0/run/sorting.phs)):
+([`run/higher_order.phs`](tests/golden/run/higher_order.phs),
+[`run/calculator.phs`](tests/golden/run/calculator.phs),
+[`run/sorting.phs`](tests/golden/run/sorting.phs)):
 
 ```phantasos
 fun square(x: Int): Int = x * x
@@ -107,9 +107,9 @@ fun main(): Int = fold(1, 5, 0, square, plus)  // 1 + 4 + 9 + 16 = 30
 
 Brace closures capture copies of the values they use, and can outlive the
 call that made them
-([`run/adders.phs`](tests/stage0/run/adders.phs),
-[`run/scores.phs`](tests/stage0/run/scores.phs),
-[`run/rules.phs`](tests/stage0/run/rules.phs)):
+([`run/adders.phs`](tests/golden/run/adders.phs),
+[`run/scores.phs`](tests/golden/run/scores.phs),
+[`run/rules.phs`](tests/golden/run/rules.phs)):
 
 ```phantasos
 fun makeAdder(n: Int): fun(Int) -> Int = { x -> x + n }
@@ -129,9 +129,9 @@ reports a use after a move (`E0504`), a move out of something only borrowed
 (`E0505`) and an `inout` argument or `mut fun` receiver that overlaps another
 argument of the same call (`E0506`); `.clone()` makes a copy that can move
 instead
-([`run/inventory.phs`](tests/stage0/run/inventory.phs),
-[`run/greetings.phs`](tests/stage0/run/greetings.phs),
-[`run/clone.phs`](tests/stage0/run/clone.phs)):
+([`run/inventory.phs`](tests/golden/run/inventory.phs),
+[`run/greetings.phs`](tests/golden/run/greetings.phs),
+[`run/clone.phs`](tests/golden/run/clone.phs)):
 
 ```phantasos
 struct Item(name: String, var count: Int) {
@@ -153,9 +153,9 @@ fun main(): Int {
 
 Generic functions and structs are compiled once per set of type arguments
 used, and calls through an interface bound go directly to the struct's method
-([`run/leaderboard.phs`](tests/stage0/run/leaderboard.phs),
-[`run/pipeline.phs`](tests/stage0/run/pipeline.phs),
-[`run/interfaces.phs`](tests/stage0/run/interfaces.phs)):
+([`run/leaderboard.phs`](tests/golden/run/leaderboard.phs),
+[`run/pipeline.phs`](tests/golden/run/pipeline.phs),
+[`run/interfaces.phs`](tests/golden/run/interfaces.phs)):
 
 ```phantasos
 interface Ranked {
@@ -189,14 +189,14 @@ fun main(): Int {
 
 | Path | Purpose |
 |---|---|
-| `bootstrap/stage0/` | The C++23 bootstrap compiler (`phantasos-stage0`) and its C++ tests |
+| `src/`, `cmake/` | The C++23 bootstrap compiler (`phantasos-stage0`) |
 | `docs/spec/` | Language and ABI specification |
 | `docs/adr/` | Architecture decision records |
 | `docs/roadmap.md` | Bootstrap milestones |
-| `tests/` | Golden tests, fuzzers and stress tests |
+| `tests/` | C++ unit tests (`unit/`), golden tests (`golden/`), fuzzers and stress tests |
 | `tools/` | Developer tools such as `license-check` |
 
-## Building stage0
+## Building
 
 You need clang++ 18 or later with a C++23 standard library that passes the
 CMake feature probe, CMake 3.28 or later, and Ninja. CI uses Clang 19 with
@@ -206,25 +206,25 @@ On Ubuntu 24.04:
 
 ```sh
 sudo apt-get install clang-19 g++-14 ninja-build
-cmake -S bootstrap/stage0 -B build/stage0 -G Ninja -DCMAKE_CXX_COMPILER=clang++-19 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14
-cmake --build build/stage0
+cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++-19 -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS=--gcc-install-dir=/usr/lib/gcc/x86_64-linux-gnu/14
+cmake --build build
 ```
 
 On Windows, or with a compatible toolchain already set up:
 
 ```sh
-cmake -S bootstrap/stage0 -B build/stage0 -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug
-cmake --build build/stage0
+cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
 ```
 
 Run the tests:
 
 ```sh
-ctest --test-dir build/stage0 --output-on-failure                    # C++ tests
-python tests/run_golden.py --stage0 build/stage0/phantasos-stage0      # golden tests
-python tests/test_frontend.py --stage0 build/stage0/phantasos-stage0   # nesting and input limits
-python tests/fuzz_frontend.py --stage0 build/stage0/phantasos-stage0   # fuzzing; add --command check|gate|mir|asm|build
-python tools/license-check/license_check.py                            # license headers
+ctest --test-dir build --output-on-failure                     # C++ tests
+python tests/run_golden.py --stage0 build/phantasos-stage0     # golden tests
+python tests/test_frontend.py --stage0 build/phantasos-stage0  # nesting and input limits
+python tests/fuzz_frontend.py --stage0 build/phantasos-stage0  # fuzzing; add --command check|gate|mir|asm|build
+python tools/license-check/license_check.py                    # license headers
 ```
 
 [`tests/stress/profile_hierarchy.py`](tests/stress/profile_hierarchy.py)
@@ -235,16 +235,16 @@ more on the tests.
 ## Trying it
 
 ```sh
-build/stage0/phantasos-stage0 help                                     # list the commands
-build/stage0/phantasos-stage0 parse tests/stage0/parser/showcase.phs   # print the syntax tree
-build/stage0/phantasos-stage0 check tests/stage0/run/inventory.phs     # type, flow and ownership checks
-build/stage0/phantasos-stage0 mir   tests/stage0/mir/fib.phs           # print the MIR
-build/stage0/phantasos-stage0 asm   tests/stage0/asm/fib.phs           # print the x86_64 code
-build/stage0/phantasos-stage0 build tests/stage0/run/hello.phs -o hello
-./hello                                                                # prints Hello, world!
+build/phantasos-stage0 help                                    # list the commands
+build/phantasos-stage0 parse tests/golden/parser/showcase.phs  # print the syntax tree
+build/phantasos-stage0 check tests/golden/run/inventory.phs    # type, flow and ownership checks
+build/phantasos-stage0 mir   tests/golden/mir/fib.phs          # print the MIR
+build/phantasos-stage0 asm   tests/golden/asm/fib.phs          # print the x86_64 code
+build/phantasos-stage0 build tests/golden/run/hello.phs -o hello
+./hello                                                        # prints Hello, world!
 ```
 
-Every program in [`tests/stage0/run`](tests/stage0/run) builds the same way;
+Every program in [`tests/golden/run`](tests/golden/run) builds the same way;
 its expected output and exit status sit next to it.
 
 ## License

@@ -102,7 +102,7 @@ def massif_sites(ms_print: str, report: Path) -> tuple[int, int, list[tuple[int,
     """Returns the peak heap and its malloc overhead in bytes, and the bytes held at the peak by each stage0 source line.
 
     Each leaf of the peak snapshot's allocation tree is charged to its innermost
-    frame in bootstrap/stage0/src, so inlined container code is charged to the
+    frame in src/, so inlined container code is charged to the
     line that owns the container.
     """
     lines = subprocess.run([ms_print, "--threshold=0.1", str(report)], capture_output=True, text=True).stdout.splitlines()
@@ -127,7 +127,7 @@ def massif_sites(ms_print: str, report: Path) -> tuple[int, int, list[tuple[int,
             continue  # not a leaf
         site = "(no stage0 frame)"
         for _, f in stack:
-            if m := re.search(r"\((?:.*/)?(bootstrap/stage0/src/[^)]*)\)", f):
+            if m := re.search(r"\((?:.*/)?(src/[^)]*)\)", f):
                 site = m.group(1)
                 break
         sites[site] = sites.get(site, 0) + size
@@ -137,14 +137,14 @@ def massif_sites(ms_print: str, report: Path) -> tuple[int, int, list[tuple[int,
 def print_massif(total: int, overhead: int, sites: list[tuple[int, str]], top: int) -> None:
     owners: dict[str, int] = {}
     for size, site in sites:
-        owner = site.split(":")[0].removeprefix("bootstrap/stage0/src/")
+        owner = site.split(":")[0].removeprefix("src/")
         owners[owner] = owners.get(owner, 0) + size
     print(f"  peak heap {total / 2**20:.1f} MiB, of which malloc overhead {overhead / 2**20:.1f} MiB; by file:")
     for owner, size in sorted(owners.items(), key=lambda kv: -kv[1])[:top]:
         print(f"    {size / 2**20:8.2f} MiB  {size / total * 100:5.1f}%  {owner}")
     print("  by line:")
     for size, site in sites[:top]:
-        print(f"    {size / 2**20:8.2f} MiB  {size / total * 100:5.1f}%  {site.removeprefix('bootstrap/stage0/src/')}")
+        print(f"    {size / 2**20:8.2f} MiB  {size / total * 100:5.1f}%  {site.removeprefix('src/')}")
 
 
 def main() -> int:

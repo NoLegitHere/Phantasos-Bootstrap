@@ -15,7 +15,7 @@
 # limitations under the License.
 """Golden-file test runner for the stage0 compiler.
 
-Layout (relative to tests/stage0):
+Layout (relative to tests/golden):
     lexer/*.phs        -> `lex`,   stdout compared with *.tokens
     parser/*.phs       -> `parse`, stdout compared with *.ast
     diagnostics/*.phs  -> `check`, stderr compared with *.diag (must fail)
@@ -44,7 +44,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent / "stage0"
+ROOT = Path(__file__).resolve().parent / "golden"
 SUITES = {
     "lexer": ("lex", ".tokens"),
     "parser": ("parse", ".ast"),

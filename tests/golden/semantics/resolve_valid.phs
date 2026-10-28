@@ -25,12 +25,13 @@ fun overloaded(x: String) = x.clone()
 extern "C" { fun foreign(x: Int): Int }
 let nested: Box.Nested = Box.Nested()
 let saved = Box<Int>(1)
+let maybe: Box<Int>? = saved
 let captured = overloaded
 let outer = 10
 fun scopes(first: Int = outer, second: Int = first) {
     let outer = outer + second
-    if let x = saved { x.read() }
-    while let x = saved { x.read(); break }
+    if let x = maybe { x.read() }
+    while let x = maybe { x.read(); break }
     for x in [1, 2] { x }
     match saved { .Some(x) | .Other(x) if x > 0 -> x }
     defer { outer }

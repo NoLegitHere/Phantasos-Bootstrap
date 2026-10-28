@@ -699,6 +699,13 @@ void moves() {
         {"fun f(s: String) { return\nlet t = s }", {}},
         {"fun f(c: Bool, s: String): String = if c { return \"x\" } else { s }", {B}},
         {"fun f(s: String): String { return \"x\"\nreturn s }", {}},
+        // A `let` condition takes the optional's value and binds it anew on
+        // each run; its binding is immutable.
+        {"fun f() { let a: String? = \"a\"\nif let s = a { take(s)\ntake(s) }\nlook(a!) }", {M, M}},
+        {"fun f() { let a: String? = \"a\"\nif let s = a { take(s) } else { look(a!) } }", {M}},
+        {"fun f(g: fun() -> String?) { while let s = g() { take(s) } }", {}},
+        {"fun f(g: fun() -> String?) { let a: String? = \"a\"\nwhile let s = a { take(s) } }", {M}},
+        {"fun f(o: Int?) { if let n = o { look(\"x\") }\nif let m = o { m = 1 } }", {DiagCode::ImmutableAssignment}},
         // A moved value is reported once until it moves again.
         {"fun f() { let a = \"a\"\ntake(a)\nlook(a)\nlook(a)\ntake(a)\nlook(a) }", {M, M}},
         // Unreachable code reports nothing.

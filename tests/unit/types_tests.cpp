@@ -418,6 +418,70 @@ void long_trees_and_forward_chains() {
 }
 }  // namespace
 
+void optionals() {
+    // `if let` and `while let` bind the value inside an optional, `??`
+    // falls back to a value or another optional of the same type, and
+    // equality compares optionals with `none`, values and each other.
+    Frontend f;
+    f.check(R"(
+fun find(n: Int): Int8? {
+    if n == 0 { return none }
+    return 1
+}
+fun use(n: Int): Int8 {
+    let found = find(n)
+    var total: Int8 = 0
+    if let inner = found { total += inner }
+    while let next = find(n) { total += next; break }
+    if let annotated: Int8 = found { total += annotated }
+    let fallback = found ?? 2
+    let chained = found ?? find(1)
+    let both = found ?? find(1) ?? 3
+    let none1 = found == none
+    let none2 = none != found
+    let value = found == 1
+    let pair = found == find(2)
+    let text: String? = "t"
+    let strings = text == "t"
+    let deep: Int8? ? = found
+    let deepValue = deep ?? none
+    let parenthesized = found == (none)
+    return total + fallback + both
+}
+)");
+    CHECK(f.binding("inner") == Type::Int8 && f.binding("next") == Type::Int8 && f.binding("annotated") == Type::Int8);
+    CHECK(f.binding("fallback") == Type::Int8 && f.binding("chained") == Type{Type::Int8}.optional());
+    CHECK(f.binding("both") == Type::Int8);
+    for (const char* name : {"none1", "none2", "value", "pair", "strings", "parenthesized"}) CHECK(f.binding(name) == Type::Bool);
+    CHECK(f.binding("deepValue") == Type{Type::Int8}.optional());
+    const auto* use = ast::cast<ast::FunItem>(f.result.syntax->items[1]);
+    // `none` takes the optional type it is compared with.
+    const auto* none1 = ast::cast<ast::VarStmt>(ast::cast<ast::BlockExpr>(use->body)->stmts[8]);
+    CHECK(f.result.scalar_types->expression(ast::cast<ast::BinaryExpr>(none1->init)->rhs) == Type{Type::Int8}.optional());
+
+    // Only optionals unwrap or fall back.
+    Frontend errors;
+    errors.check(R"(
+fun bad(i: Int, o: Int?) {
+    if let x = i {}
+    if let y = none {}
+    while let z = 1 { break }
+    let a = i ?? 1
+    let b = none ?? 1
+    let c = o ?? "s"
+    let d = o == true
+    if let e: Bool = o {}
+}
+)", {DiagCode::NotOptional, DiagCode::NotOptional, DiagCode::NotOptional, DiagCode::NotOptional,
+      DiagCode::NotOptional, DiagCode::ScalarTypeMismatch, DiagCode::ScalarTypeMismatch, DiagCode::ScalarTypeMismatch});
+    CHECK(errors.binding("x") == Type::Error && errors.binding("a") == Type::Error);
+
+    // Composite optionals still defer their equality.
+    Frontend composite;
+    composite.check("fun pairs(a: (Int, Int)?, b: (Int, Int)?) {\n    let same = a == b\n}\n");
+    CHECK(composite.binding("same") == Type::Deferred);
+}
+
 int main() {
     retained_inference_and_context();
     diagnostics_and_suppression();
@@ -430,4 +494,5 @@ int main() {
     primary_constructor_field_types();
     session_gating_and_lifetimes();
     long_trees_and_forward_chains();
+    optionals();
 }

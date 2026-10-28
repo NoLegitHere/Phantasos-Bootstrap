@@ -93,7 +93,7 @@ let comparison = checked == small
     CHECK(f.type("annotated") == f.type("lifted") && f.type("annotated") == f.type("checked"));
     CHECK(f.type("nested") == Type{Type::Int8}.optional().optional());
     CHECK(f.type("unwrapped") == Type::Int8 && f.type("viaFunction") == f.type("checked"));
-    CHECK(f.type("inferredResult") == f.type("checked") && f.type("comparison") == Type::Deferred);
+    CHECK(f.type("inferredResult") == f.type("checked") && f.type("comparison") == Type::Bool);
     CHECK(scalar_type_name(f.type("nested")) == "Int8??");
     const auto& wide = f.conversion("widened");
     CHECK(wide.state == CallState::Resolved && wide.kind == ConversionKind::Widening);

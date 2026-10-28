@@ -3376,13 +3376,14 @@ private:
             return {Type::Error};
         }
         if (initial.type == Type::Never) return initial;
-        if (!known(initial.type) || !initial.type.optional_depth) return {};
         if (declaration.annotation) {
+            // The annotation gives a pending initializer, such as an `if`, its context.
             const Type declared = annotation(declaration.annotation);
             if (!known(declared)) return {declared == Type::Error ? Type::Error : Type::Deferred};
             const auto checked = require(init, declared.optional(), init->span);
             return {checked.type == Type::Error ? Type::Error : declared};
         }
+        if (!known(initial.type) || !initial.type.optional_depth) return {};
         return {initial.type.element()};
     }
 
@@ -3595,6 +3596,12 @@ private:
         }
         // A fallback of the same optional type chains: `a ?? b` is then optional too.
         if (const auto fallback = value(expr.rhs); fallback.literal == Literal::None && fallback.type == lhs.type) return {lhs.type};
+        if (none_literal(expr.rhs)) {
+            // `none` fills the inner type when that is optional, else opt's own.
+            const Type target = inner.optional_depth ? inner : lhs.type;
+            const auto fallback = require(expr.rhs, target, expr.rhs->span);
+            return fallback.type == Type::Error ? fallback : Value{target};
+        }
         const auto rhs = require(expr.rhs, inner, expr.rhs->span);
         if (rhs.type == Type::Error) return rhs;
         if (unavailable(rhs)) return {};
@@ -3607,11 +3614,12 @@ private:
         const Value& wide = left ? lhs : rhs;
         const Expr* other = left ? expr.rhs : expr.lhs;
         if (!known(wide.type) || !wide.type.optional_depth) return {};
+        // Composite equality stays deferred (3.28), so only scalar optionals impose a type.
+        const auto inner = wide.type.scalar();
+        if (inner.kind < Type::Int8 || inner.kind > Type::Unit) return {};
         const auto narrowed = require(other, wide.type, other->span);
         if (narrowed.type == Type::Error) return narrowed;
         if (unavailable(narrowed) && !none_literal(other)) return {};
-        const auto inner = wide.type.scalar();
-        if (inner.kind < Type::Int8 || inner.kind > Type::Unit) return {};
         return {Type::Bool};
     }
 

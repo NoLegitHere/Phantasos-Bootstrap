@@ -446,6 +446,8 @@ fun use(n: Int): Int8 {
     let deep: Int8? ? = found
     let deepValue = deep ?? none
     let parenthesized = found == (none)
+    let kept = found ?? none
+    if let picked: Int8 = if n == 1 { found } else { find(2) } { total += picked }
     return total + fallback + both
 }
 )");
@@ -453,7 +455,8 @@ fun use(n: Int): Int8 {
     CHECK(f.binding("fallback") == Type::Int8 && f.binding("chained") == Type{Type::Int8}.optional());
     CHECK(f.binding("both") == Type::Int8);
     for (const char* name : {"none1", "none2", "value", "pair", "strings", "parenthesized"}) CHECK(f.binding(name) == Type::Bool);
-    CHECK(f.binding("deepValue") == Type{Type::Int8}.optional());
+    CHECK(f.binding("deepValue") == Type{Type::Int8}.optional() && f.binding("kept") == Type{Type::Int8}.optional());
+    CHECK(f.binding("picked") == Type::Int8);
     const auto* use = ast::cast<ast::FunItem>(f.result.syntax->items[1]);
     // `none` takes the optional type it is compared with.
     const auto* none1 = ast::cast<ast::VarStmt>(ast::cast<ast::BlockExpr>(use->body)->stmts[8]);
@@ -462,7 +465,7 @@ fun use(n: Int): Int8 {
     // Only optionals unwrap or fall back.
     Frontend errors;
     errors.check(R"(
-fun bad(i: Int, o: Int?) {
+fun bad(i: Int, o: Int?, flag: Bool, s: String?) {
     if let x = i {}
     if let y = none {}
     while let z = 1 { break }
@@ -471,15 +474,17 @@ fun bad(i: Int, o: Int?) {
     let c = o ?? "s"
     let d = o == true
     if let e: Bool = o {}
+    if let g: Int = if flag { s } else { o } {}
 }
 )", {DiagCode::NotOptional, DiagCode::NotOptional, DiagCode::NotOptional, DiagCode::NotOptional,
-      DiagCode::NotOptional, DiagCode::ScalarTypeMismatch, DiagCode::ScalarTypeMismatch, DiagCode::ScalarTypeMismatch});
+      DiagCode::NotOptional, DiagCode::ScalarTypeMismatch, DiagCode::ScalarTypeMismatch, DiagCode::ScalarTypeMismatch,
+      DiagCode::ScalarTypeMismatch});
     CHECK(errors.binding("x") == Type::Error && errors.binding("a") == Type::Error);
 
     // Composite optionals still defer their equality.
     Frontend composite;
-    composite.check("fun pairs(a: (Int, Int)?, b: (Int, Int)?) {\n    let same = a == b\n}\n");
-    CHECK(composite.binding("same") == Type::Deferred);
+    composite.check("fun pairs(a: (Int8, Int8)?, b: (Int8, Int8)?) {\n    let same = a == b\n    let literal = a == (1, 2)\n}\n");
+    CHECK(composite.binding("same") == Type::Deferred && composite.binding("literal") == Type::Deferred);
 }
 
 int main() {

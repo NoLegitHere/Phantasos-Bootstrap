@@ -148,11 +148,14 @@ the fields that were already initialized are destroyed.
 - `opt ?? fallback` is the value inside `opt`, or `fallback` when `opt` is
   `none`. The fallback has that inner type, or `opt`'s own type, in which
   case the result is still optional: `a ?? b ?? 0` tries `a`, then `b`. A
-  left operand that is not an optional, or is `none` itself, is `E0404`.
+  `none` fallback takes the inner type when that is optional, and `opt`'s
+  type otherwise. A left operand that is not an optional, or is `none`
+  itself, is `E0404`.
 - `==` and `!=` compare an optional with `none`, with a value of its inner
   type (which lifts), or with another optional of the same type. Stage0
   checks this when the inner type is a built-in scalar or `String`; for
-  tuples, structs and other composites the comparison stays deferred.
+  tuples, structs and other composites the comparison stays deferred, and
+  neither operand takes the other's type.
 - `none` takes the optional type it fills: the expected type, or the other
   operand's type in a comparison.
 - **Smart casts.** After `if x is Circle`, the name `x` has type `Circle`

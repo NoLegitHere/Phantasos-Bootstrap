@@ -403,7 +403,7 @@ fun pending() { for n in [opaque<Int>()] {} }
         {"fun f(a: inout [Int]) { a.append() }", DiagCode::NoMatchingCall},
         {"fun f(a: inout [Int]) { a.append(value: 1) }", DiagCode::NoMatchingCall},
         {"fun f(a: inout [Int]) { let x = a.removeLast(1) }", DiagCode::NoMatchingCall},
-        {"let a = [1]\nlet bad = a.clone()", DiagCode::UnknownMember},
+        {"class C\nlet a = [C()]\nlet bad = a.clone()", DiagCode::UnknownMember},
         {"let a = [1]\nlet bad = a.count()", DiagCode::NotCallable},
         {"let a: [Int]? = [1]\nlet bad = a?.size", DiagCode::UnknownMember},
         {"fun f(a: inout [Int8]?) { a?.append(300) }", DiagCode::ScalarLiteralRange},

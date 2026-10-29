@@ -290,21 +290,24 @@ let d = maybe.clone()
 let e = E(1).clone()
 let f = 7.clone()
 let h = (1, "z").clone()
+let grid = [[p]]
+let i = grid.clone()
 )");
-    for (std::string_view name : {"a", "b", "c", "d", "f", "h"}) {
+    for (std::string_view name : {"a", "b", "c", "d", "f", "h", "i"}) {
         const auto& call = clones.call(name);
         CHECK(call.state == CallState::Resolved && call.kind == CallKind::Clone && !call.target.valid());
         CHECK(call.receiver && call.parameters.empty());
     }
     CHECK(clones.type("a") == Type::String && clones.type("b") == clones.type("p") && clones.type("d") == clones.type("maybe"));
+    CHECK(clones.type("i") == clones.type("grid"));
     CHECK(clones.type("f") == Type::Int);
     CHECK(clones.type("c").kind == Type::Tuple && clones.type("h").kind == Type::Tuple);
     // A type's own `clone` member is an ordinary method.
     CHECK(clones.call("e").kind == CallKind::Method && clones.type("e") == Type::Int);
 
-    for (std::string_view bad : {"Q([1]).clone()", "C(1).clone()", "G(1).clone()", "(1, [2]).clone()", "W(Q([1])).clone()"}) {
+    for (std::string_view bad : {"Q([C(1)]).clone()", "C(1).clone()", "G(1).clone()", "(1, [C(2)]).clone()", "W(Q([])).clone()"}) {
         Frontend rejected;
-        rejected.check(std::format("struct Q(xs: [Int])\nclass C(n: Int)\nstruct G<T>(x: T)\nstruct W(q: Q)\nlet bad = {}", bad),
+        rejected.check(std::format("struct Q(xs: [C])\nclass C(n: Int)\nstruct G<T>(x: T)\nstruct W(q: Q)\nlet bad = {}", bad),
                        {DiagCode::UnknownMember});
         CHECK(rejected.call("bad").state == CallState::Error && rejected.call("bad").kind == CallKind::Clone);
     }

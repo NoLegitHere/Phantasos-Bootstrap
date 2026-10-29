@@ -1,0 +1,75 @@
+loop_mutation.phs:24:23: error[E0506]: cannot change 'self' while a 'for' loop runs over 'xs'
+   24 |         for x in xs { clear() }
+      |                       ^^^^^
+loop_mutation.phs:24:18: note: the loop runs over it here
+   24 |         for x in xs { clear() }
+      |                  ^^
+loop_mutation.phs:37:18: error[E0506]: cannot change 'a' while a 'for' loop runs over 'a'
+   37 |     for x in a { a.append(x) }
+      |                  ^
+loop_mutation.phs:37:14: note: the loop runs over it here
+   37 |     for x in a { a.append(x) }
+      |              ^
+loop_mutation.phs:38:18: error[E0506]: cannot change 'a[0]' while a 'for' loop runs over 'a'
+   38 |     for x in a { a[0] = 3 }
+      |                  ^^^^
+loop_mutation.phs:38:14: note: the loop runs over it here
+   38 |     for x in a { a[0] = 3 }
+      |              ^
+loop_mutation.phs:39:18: error[E0506]: cannot change 'a' while a 'for' loop runs over 'a'
+   39 |     for x in a { a = [] }
+      |                  ^
+loop_mutation.phs:39:14: note: the loop runs over it here
+   39 |     for x in a { a = [] }
+      |              ^
+loop_mutation.phs:40:24: error[E0506]: cannot change 'a' while a 'for' loop runs over 'a'
+   40 |     for x in a { reset(a) }
+      |                        ^
+loop_mutation.phs:40:14: note: the loop runs over it here
+   40 |     for x in a { reset(a) }
+      |              ^
+loop_mutation.phs:41:23: error[E0506]: cannot move 'a' while a 'for' loop runs over 'a'
+   41 |     for x in a { take(a) }
+      |                       ^
+loop_mutation.phs:41:14: note: the loop runs over it here
+   41 |     for x in a { take(a) }
+      |              ^
+loop_mutation.phs:41:23: error[E0504]: 'a' is used after it may have been moved
+   41 |     for x in a { take(a) }
+      |                       ^
+loop_mutation.phs:41:23: note: moved here
+   41 |     for x in a { take(a) }
+      |                       ^
+loop_mutation.phs:36:9: note: declared here with type '[Int]', which is not Copy
+   36 |     var a = [1, 2]
+      |         ^
+loop_mutation.phs:43:21: error[E0506]: cannot change 'h.xs' while a 'for' loop runs over 'h.xs'
+   43 |     for x in h.xs { h.xs.append(1) }
+      |                     ^^^^
+loop_mutation.phs:43:14: note: the loop runs over it here
+   43 |     for x in h.xs { h.xs.append(1) }
+      |              ^^^^
+loop_mutation.phs:44:21: error[E0506]: cannot change 'h' while a 'for' loop runs over 'h.xs'
+   44 |     for x in h.xs { h = Holder([], 0) }
+      |                     ^
+loop_mutation.phs:44:14: note: the loop runs over it here
+   44 |     for x in h.xs { h = Holder([], 0) }
+      |              ^^^^
+loop_mutation.phs:46:21: error[E0506]: cannot change 'g[0]' while a 'for' loop runs over 'g[0]', which it may overlap
+   46 |     for x in g[0] { g[0].append(2) }
+      |                     ^^^^
+loop_mutation.phs:46:14: note: the loop runs over it here
+   46 |     for x in g[0] { g[0].append(2) }
+      |              ^^^^
+loop_mutation.phs:47:21: error[E0506]: cannot change 'g[1]' while a 'for' loop runs over 'g[0]', which it may overlap
+   47 |     for x in g[0] { g[1] = [] }
+      |                     ^^^^
+loop_mutation.phs:47:14: note: the loop runs over it here
+   47 |     for x in g[0] { g[1] = [] }
+      |              ^^^^
+loop_mutation.phs:48:21: error[E0506]: cannot change 'pool' while a 'for' loop runs over 'pool'
+   48 |     for x in pool { touch() }
+      |                     ^^^^^
+loop_mutation.phs:48:14: note: the loop runs over it here
+   48 |     for x in pool { touch() }
+      |              ^^^^

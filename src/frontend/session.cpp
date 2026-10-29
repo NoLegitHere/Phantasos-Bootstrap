@@ -45,7 +45,7 @@ CheckResult FrontendSession::check(FileId file) {
             if (!diag_.has_errors(file))
                 state.scalar_types = check_scalar_types(*syntax, *state.resolution, names_, diag_);
             if (!diag_.has_errors(file) && state.scalar_types)
-                check_flow(*syntax, *state.resolution, *state.scalar_types, names_, diag_);
+                state.flow = check_flow(*syntax, *state.resolution, *state.scalar_types, names_, diag_);
         }
     }
     return {syntax, state.resolution ? &*state.resolution : nullptr,
@@ -66,7 +66,7 @@ bool FrontendSession::check_codegen(FileId file) {
 const mir::Program* FrontendSession::lower(FileId file) {
     if (!check_codegen(file)) return nullptr;
     auto& state = files_.at(file.value);
-    if (!state.mir) state.mir = mir::lower(*state.syntax, *state.resolution, *state.scalar_types, names_, sources_);
+    if (!state.mir) state.mir = mir::lower(*state.syntax, *state.resolution, *state.scalar_types, state.flow, names_, sources_);
     return &*state.mir;
 }
 

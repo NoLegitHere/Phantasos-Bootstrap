@@ -765,9 +765,9 @@ void growth_and_loops() {
     // The lower bound keeps its value when the upper bound assigns it.
     CHECK(result("fun id(x: Int): Int = x\nfun main(): Int {\n    var lo = 1\n    var n = 0\n"
                  "    for i in lo..id(if true {\n        lo = 3\n        4\n    } else { 4 }) { n += i }\n    return n\n}\n") == 10);
-    // The loop reads its array once, so appending in the body does not extend it.
+    // A loop over a clone is not extended by appending to the original.
     CHECK(result("fun main(): Int {\n    var a = [1, 2]\n    var n = 0\n"
-                 "    for x in a {\n        a.append(x)\n        n += 1\n    }\n    return n * 10 + a.count\n}\n") == 24);
+                 "    for x in a.clone() {\n        a.append(x)\n        n += 1\n    }\n    return n * 10 + a.count\n}\n") == 24);
     // Elements appended through fields, nested arrays and `mut fun` receivers.
     CHECK(result("struct S(var items: [Int]) {\n    mut fun add(x: Int) { items.append(x) }\n}\n"
                  "fun main(): Int {\n    var s = S([])\n    s.add(4)\n    s.items.append(5)\n"
@@ -781,6 +781,89 @@ void growth_and_loops() {
                                    "fun main(): Int {\n    var a: [[Int]] = [[]]\n    a[at()].append(value())\n"
                                    "    return a[0][0]\n}\n");
     CHECK(!ordered.trapped && ordered.value == 7 && ordered.output == "index\nvalue\n");
+}
+
+void array_ownership() {
+    // Clones copy elements, nested arrays and arrays in fields and optionals;
+    // generic code keeps arrays of any element type.
+    CHECK(result("struct Bag(var items: [Int], var name: String)\n"
+                 "struct Stack<T>(var items: [T]) {\n"
+                 "    mut fun push(x: own T) { items.append(x) }\n"
+                 "    mut fun pop(): T? = items.removeLast()\n"
+                 "    fun peek(): T? {\n"
+                 "        if items.isEmpty { return none }\n"
+                 "        return items[items.count - 1]\n"
+                 "    }\n"
+                 "}\n"
+                 "fun first<T>(xs: [T]): T? {\n"
+                 "    if xs.isEmpty { return none }\n"
+                 "    return xs[0]\n"
+                 "}\n"
+                 "fun total(a: [Int]): Int {\n"
+                 "    var s = 0\n"
+                 "    for x in a { s += x }\n"
+                 "    return s\n"
+                 "}\n"
+                 "fun main(): Int {\n"
+                 "    var a = [1, 2, 3]\n"
+                 "    var b = a.clone()\n"
+                 "    b[0] = 10\n"
+                 "    b.append(4)\n"
+                 "    var grid = [[1, 2], [3]]\n"
+                 "    var copy = grid.clone()\n"
+                 "    copy[0][1] = 20\n"
+                 "    copy[1].append(4)\n"
+                 "    var bag = Bag([5, 6], \"x\")\n"
+                 "    var other = bag.clone()\n"
+                 "    other.items[0] = 50\n"
+                 "    let maybe: [Int]? = [7]\n"
+                 "    let empty: [Int]? = none\n"
+                 "    var n = 0\n"
+                 "    if let m = maybe.clone() { n += m[0] }\n"
+                 "    if let m = empty.clone() { n += 1000 }\n"
+                 "    var s = Stack<String>([])\n"
+                 "    s.push(\"a\")\n"
+                 "    s.push(\"bc\")\n"
+                 "    var got = 0\n"
+                 "    if let top = s.peek() { got += 1 }\n"
+                 "    if let top = s.pop() { got += 10 }\n"
+                 "    if let f = first([4, 5]) { got += f * 100 }\n"
+                 "    if let f = first<Int>([]) { got += 1 }\n"
+                 "    var r = total(a) + total(b) * 10 + grid[0][1] * 1000 + copy[0][1] * 10000\n"
+                 "    r += grid[1].count * 1000000 + copy[1].count * 10000000 + bag.items[0] * 100000000\n"
+                 "    return r + n * 1000000000 + got * 10000000000 + s.items.count * 100000000000000\n"
+                 "}\n") == 104117521202196);
+    // A generic value that moves out of a borrow is a copy once its type
+    // argument holds an array: results, fields, tuples and captured loop
+    // elements do not share elements with the original.
+    CHECK(result("struct Box<T>(var value: T) {\n"
+                 "    fun get(): T = value\n"
+                 "}\n"
+                 "fun first<T>(xs: [T]): T = xs[0]\n"
+                 "fun id<T>(x: T): T = x\n"
+                 "fun keep<T>(xs: [T]): [fun() -> T] {\n"
+                 "    var out: [fun() -> T] = []\n"
+                 "    for x in xs { out.append({ -> x }) }\n"
+                 "    return out\n"
+                 "}\n"
+                 "fun pair<T>(x: T): (T, Int) = (x, 1)\n"
+                 "fun main(): Int {\n"
+                 "    var g = [[1]]\n"
+                 "    var f = first(g)\n"
+                 "    f[0] = 9\n"
+                 "    var h = [2]\n"
+                 "    var k = id(h)\n"
+                 "    k[0] = 8\n"
+                 "    let b = Box([3])\n"
+                 "    var v = b.get()\n"
+                 "    v[0] = 7\n"
+                 "    var fs = keep(g)\n"
+                 "    g[0][0] = 6\n"
+                 "    let w = fs[0]()\n"
+                 "    var p = pair(h)\n"
+                 "    p.0[0] = 5\n"
+                 "    return g[0][0] * 10000 + h[0] * 1000 + b.value[0] * 100 + w[0] * 10 + p.1\n"
+                 "}\n") == 62311);
 }
 
 int main() {
@@ -801,6 +884,7 @@ int main() {
     optional_chaining();
     arrays();
     growth_and_loops();
+    array_ownership();
     rejected_files();
     long_trees();
     std::println("mir tests passed");

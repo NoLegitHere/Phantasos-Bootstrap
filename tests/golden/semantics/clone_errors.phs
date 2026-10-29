@@ -15,16 +15,16 @@
 
 
 // The built-in `x.clone()` (3.31) copies only values whose parts all clone.
-struct Tags(names: [String])
-struct Wrapper(tags: Tags)
-struct Box<T>(value: T)
 class Account(balance: Int)
+struct Ledger(accounts: [Account])
+struct Wrapper(ledger: Ledger)
+struct Box<T>(value: T)
 
 fun main() {
-    let a = Tags(["x"]).clone()
-    let b = Wrapper(Tags([])).clone()
+    let a = Ledger([Account(1)]).clone()
+    let b = Wrapper(Ledger([])).clone()
     let c = Box(1).clone()
     let d = Account(5).clone()
-    let e = ("a", [1]).clone()
+    let e = ("a", [Account(2)]).clone()
     let f: Int = "text".clone()
 }

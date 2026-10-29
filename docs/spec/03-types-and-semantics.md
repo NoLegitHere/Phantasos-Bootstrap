@@ -1456,8 +1456,11 @@ Unwrapping (`p!`) and the other forwarding forms above move their operand, so
 `E0503`, such as `self` or a borrowed parameter, is not reported again inside
 the closure body. A type made from generic parameters or associated types
 counts as `Copy` here, because what it stands for is not known yet. Each
-place is reported once, and only where a reachable use would move it. Nothing in stage0's generated code owns memory, so a
-move copies the value's words and nothing is destroyed.
+place is reported once, and only where a reachable use would move it. In
+stage0's generated code a move copies the value's words and nothing is
+destroyed. In an instance whose type argument holds an array, a generic
+value that moves out of a borrow this way is cloned (3.31) instead, so the
+two do not share elements.
 
 ## 3.31 Cloning [Core]
 
@@ -1466,10 +1469,10 @@ same type. Stage0 provides it until a `Clone` trait exists, and decides
 which types clone structurally, like `Copy` (3.29):
 
 - `String`, and every `Copy` type, clones;
-- a tuple or optional clones when its parts do;
+- a tuple, optional or array clones when its parts do;
 - a non-generic struct clones when all of its stored fields do.
 
-Arrays, classes, generic parameters, instances of generic structs and
+Classes, generic parameters, instances of generic structs and
 reference types do not clone yet. Calling `clone()` on a value whose type has
 none is `E0450`, with a note naming the part that does not clone. A type
 that declares its own `clone` member uses it instead, as an ordinary method
@@ -1479,8 +1482,9 @@ not a receiver.
 The receiver is only borrowed (3.30), so `take(a.clone())` leaves `a`
 usable, and the result is a new value that moves like any other. A literal
 receiver takes its default type first, so `7.clone()` is an `Int`. In
-stage0's generated code a clone copies the value's words, because nothing
-owns heap memory yet (3.30).
+stage0's generated code a clone copies the value's words, except that each
+array in it gets new memory holding clones of its elements, so changing one
+never changes the other.
 
 ## 3.32 Exclusive access [Core]
 
@@ -1511,7 +1515,8 @@ omitted `inout` parameter defaults to `g`. An argument that is not a
 place, such as `a + 1` or `p.x.clone()`, is a temporary and never overlaps;
 copying a value into a local first is the usual fix. Stage0 compares places
 by how they are written, so two class references to the same instance are
-not reported.
+not reported. A `for` loop over an array holds it the same way
+for its whole body (3.33).
 
 ## 3.33 Arrays [Core]
 
@@ -1551,6 +1556,10 @@ default to `Int`. Both bounds are evaluated once, before the first
 iteration, and the loop ends without overflow when `hi` is the type's
 maximum. Subjects of any other type are `E0405`. A range has no
 value of its own yet, so `a..<b` or `a..b` anywhere but as the subject of a
-`for` loop is `E0406`. Changing an array while a `for` loop runs over it is
-not checked yet; in stage0, the loop runs once for each element the array
-had when it started, so appending in the body does not extend it.
+`for` loop is `E0406`. While a `for` loop runs over a place, such as `a`, `p.items` or `g[0]`,
+its body has exclusive access to it (3.32): assigning to it or to a place
+that overlaps it, calling `append`, `removeLast` or a `mut fun` on such a
+place, passing one `inout` (also as the default of an omitted parameter),
+or moving the array is `E0506`, with a note at
+the loop. Reading it and changing other places are fine, and so is `for x in
+a.clone() { a.append(x) }`, which runs over a copy.

@@ -132,6 +132,7 @@ std::string_view op_name(Op op) {
         case Op::Load: return "load";
         case Op::Store: return "store";
         case Op::Reserve: return "reserve";
+        case Op::Allocate: return "allocate";
     }
     unreachable();
 }

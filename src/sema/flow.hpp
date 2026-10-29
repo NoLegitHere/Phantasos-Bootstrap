@@ -15,6 +15,10 @@
 
 #pragma once
 
+#include <set>
+#include <unordered_set>
+#include <utility>
+
 #include "sema/types.hpp"
 
 namespace phs {
@@ -30,9 +34,19 @@ namespace phs {
 // non-Copy local or `own` parameter cannot be used after it moved (E0504,
 // 3.30), only what the callable owns can move (E0505), and an `inout`
 // argument or `mut fun` receiver cannot overlap another argument of the same
-// call (E0506, 3.32). Run after scalar typing succeeds; the AST,
+// call, and a `for` loop body cannot change or move what the loop runs over
+// (E0506, 3.32, 3.33). Run after scalar typing succeeds; the AST,
 // Resolution and ScalarTypes are unchanged.
-void check_flow(const ast::File& file, const Resolution& resolution, const ScalarTypes& types,
-                const Interner& names, DiagEngine& diag);
+//
+// A value of generic type counts as Copy when it moves out of a borrow, since
+// what it stands for is unknown. The result names those moves, and loop
+// elements captured that way, so that an instance whose type argument owns
+// an array can copy them.
+struct FlowFacts {
+    std::unordered_set<const ast::Expr*> copies;
+    std::set<std::pair<const ast::ClosureExpr*, u32>> copied_captures;  // closure, binding
+};
+FlowFacts check_flow(const ast::File& file, const Resolution& resolution, const ScalarTypes& types,
+                     const Interner& names, DiagEngine& diag);
 
 }  // namespace phs

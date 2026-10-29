@@ -730,6 +730,7 @@ private:
         if (inst.op == Op::Array) return array(inst);
         if (inst.op == Op::Load || inst.op == Op::Store) return element(inst);
         if (inst.op == Op::Reserve) return reserve(inst);
+        if (inst.op == Op::Allocate) return allocate(inst);
         const Type type = fun_->regs[inst.dst.id];
         if (mir::is_aggregate(type)) {
             PHS_ASSERT(inst.op == Op::Copy);
@@ -784,7 +785,7 @@ private:
             }
             case Op::Call: case Op::Str: case Op::Print: case Op::Make: case Op::Field: case Op::With:
             case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None:
-            case Op::Array: case Op::Load: case Op::Store: case Op::Reserve: break;
+            case Op::Array: case Op::Load: case Op::Store: case Op::Reserve: case Op::Allocate: break;
         }
         as_.store(slot(inst.dst), RAX);
     }
@@ -943,6 +944,26 @@ private:
         as_.mov_imm(RAX, stride);
         as_.imul(RCX, RAX);
         as_.rep_movsb();
+        as_.place(done);
+    }
+
+    // A new array of count zeroed elements from _P$alloc; with none, all zero.
+    void allocate(const mir::Inst& inst) {
+        const auto& layout = program_.layouts[mir::layout_index(fun_->regs[inst.dst.id])];
+        const auto empty = as_.label(), done = as_.label();
+        zero(slot(inst.dst), layout.size);
+        as_.load(RCX, slot(inst.a));
+        as_.test(RCX);
+        as_.jcc(E, empty);
+        as_.store(slot(inst.dst) + static_cast<i32>(layout.offsets[1]), RCX);
+        as_.store(slot(inst.dst) + static_cast<i32>(layout.offsets[2]), RCX);
+        as_.mov_imm(RAX, size(layout.element));
+        as_.imul(RCX, RAX);
+        as_.mov(RDI, RCX);
+        as_.call(runtime(kAlloc));
+        as_.store(slot(inst.dst) + static_cast<i32>(layout.offsets[0]), RAX);
+        as_.jump(done);
+        as_.place(empty);
         as_.place(done);
     }
 
@@ -1145,7 +1166,8 @@ public:
             return std::ranges::any_of(fun.blocks, [&](const mir::Block& block) {
                 return std::ranges::any_of(block.insts, [&](const mir::Inst& inst) {
                     return (inst.op == Op::Closure && program_.functions[inst.callee].environment.has_value()) ||
-                           (inst.op == Op::Array && !inst.args.empty()) || inst.op == Op::Reserve;
+                           (inst.op == Op::Array && !inst.args.empty()) || inst.op == Op::Reserve ||
+                           inst.op == Op::Allocate;
                 });
             });
         });

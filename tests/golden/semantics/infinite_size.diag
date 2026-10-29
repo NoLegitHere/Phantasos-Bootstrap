@@ -1,0 +1,30 @@
+infinite_size.phs:19:8: error[E0442]: 'Node' holds itself inline through field 'next', so it has no finite size; hold it in an array or a class instead
+   19 | struct Node(value: Int, next: Link)
+      |        ^^^^
+infinite_size.phs:20:8: error[E0442]: 'Link' holds itself inline through field 'node', so it has no finite size; hold it in an array or a class instead
+   20 | struct Link(node: Node)
+      |        ^^^^
+infinite_size.phs:21:8: error[E0442]: 'Chain' holds itself inline through field 'next', so it has no finite size; hold it in an array or a class instead
+   21 | struct Chain(value: Int, next: Chain?)
+      |        ^^^^^
+infinite_size.phs:22:8: error[E0442]: 'Paired' holds itself inline through field 'inner', so it has no finite size; hold it in an array or a class instead
+   22 | struct Paired(inner: (Paired, Int))
+      |        ^^^^^^
+infinite_size.phs:25:8: error[E0442]: 'Looped' holds itself inline through field 'inner', so it has no finite size; hold it in an array or a class instead
+   25 | struct Looped<T>(inner: Box<Looped<T>>)
+      |        ^^^^^^
+infinite_size.phs:26:8: error[E0442]: 'Grow' holds itself inline through field 'inner', so it has no finite size; hold it in an array or a class instead
+   26 | struct Grow<T>(inner: Grow<Box<T>>)
+      |        ^^^^
+infinite_size.phs:27:8: error[E0442]: 'Doubling' holds itself inline through field 'inner', so it has no finite size; hold it in an array or a class instead
+   27 | struct Doubling<T>(inner: Doubling<(T, T)>)
+      |        ^^^^^^^^
+infinite_size.phs:29:8: error[E0442]: 'Branching' holds itself inline through field 'a', so it has no finite size; hold it in an array or a class instead
+   29 | struct Branching<T>(a: Branching<[T]>, b: Branching<Box<T>>, c: Branching<(T, T)>)
+      |        ^^^^^^^^^
+infinite_size.phs:31:8: error[E0442]: 'Body' holds itself inline through field 'me', so it has no finite size; hold it in an array or a class instead
+   31 | struct Body {
+      |        ^^^^
+infinite_size.phs:35:6: error[E0442]: 'Expr' holds itself inline through case '.add', so it has no finite size; hold it in an array or a class instead
+   35 | enum Expr {
+      |      ^^^^

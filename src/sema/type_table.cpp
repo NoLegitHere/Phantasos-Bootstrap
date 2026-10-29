@@ -54,42 +54,49 @@ ScalarType TypeTable::intern(TypeDescriptor descriptor) {
 }
 
 ScalarType ScalarTypes::substitute(ScalarType type, std::span<const TypeArgument> arguments) {
-    if (arguments.empty()) return type;
+    if (arguments.empty() || !types_.descriptor(type)) return type;
     // Types share their parts, so each distinct descriptor is substituted
-    // once, without its optional wrappers.
+    // once, without its optional wrappers, parts first and without
+    // recursion, since aliases can nest types deeply.
     FlatMap<usize, ScalarType> done;
-    const auto visit = [&](this const auto& self, ScalarType inner) -> ScalarType {
-        const auto* found = types_.descriptor(inner);
-        if (!found) return inner;
-        auto it = done.find(inner.detail);
-        if (it == done.end()) {
-            ScalarType result = inner.scalar();
-            if (found->kind == ScalarType::TypeParameter) {
-                for (const auto& [parameter, argument] : arguments)
-                    if (parameter == found->declaration) result = argument;
-            } else {
-                // Interning a part can move the descriptor, so the copy is changed.
-                TypeDescriptor next = *found;
-                bool changed = false;
-                const auto part = [&](ScalarType& part_type) {
-                    const auto replaced = self(part_type);
-                    changed |= replaced != part_type;
-                    part_type = replaced;
-                };
-                part(next.element);
-                part(next.result);
-                part(next.error);
-                for (auto& parameter : next.parameters) part(parameter);
-                for (auto& argument : next.arguments) part(argument);
-                if (changed) result = types_.intern(std::move(next));
-            }
-            it = done.emplace(inner.detail, result).first;
+    std::vector<std::pair<usize, bool>> work{{type.detail, false}};  // a descriptor, and whether its parts are done
+    const auto at = [](usize detail) { return ScalarType{ScalarType::Deferred, 0, detail}; };
+    while (!work.empty()) {
+        const auto [detail, parts_done] = work.back();
+        work.pop_back();
+        if (done.find(detail) != done.end()) continue;
+        // Interning a part can move the descriptor, so a copy is changed.
+        TypeDescriptor next = *types_.descriptor(at(detail));
+        ScalarType result{next.kind, 0, detail};
+        if (next.kind == ScalarType::TypeParameter) {
+            for (const auto& [parameter, argument] : arguments)
+                if (parameter == next.declaration) result = argument;
+            done.emplace(detail, result);
+            continue;
         }
-        auto result = it->second;
-        result.optional_depth += inner.optional_depth;
-        return result;
-    };
-    return visit(type);
+        std::vector<ScalarType*> parts{&next.element, &next.result, &next.error};
+        for (auto& parameter : next.parameters) parts.push_back(&parameter);
+        for (auto& argument : next.arguments) parts.push_back(&argument);
+        if (!parts_done) {
+            work.push_back({detail, true});
+            for (const ScalarType* part : parts)
+                if (types_.descriptor(*part) && done.find(part->detail) == done.end()) work.push_back({part->detail, false});
+            continue;
+        }
+        bool changed = false;
+        for (ScalarType* part : parts) {
+            if (!types_.descriptor(*part)) continue;
+            ScalarType replaced = done.find(part->detail)->second;
+            replaced.optional_depth += part->optional_depth;
+            changed |= replaced != *part;
+            *part = replaced;
+        }
+        if (changed) result = types_.intern(std::move(next));
+        done.emplace(detail, result);
+    }
+    auto result = done.find(type.detail)->second;
+    result.optional_depth += type.optional_depth;
+    return result;
 }
 
 ScalarType ScalarTypes::declared(BindingId declaration, std::span<const BindingId> parameters) {

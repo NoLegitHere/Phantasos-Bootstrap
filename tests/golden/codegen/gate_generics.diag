@@ -1,5 +1,5 @@
 gate_generics.phs:31:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   31 | struct Looped<T>(inner: Box<Looped<T>>)
+   31 | struct Looped<T>(inner: Box<[Looped<T>]>)
       |        ^^^^^^
 gate_generics.phs:35:9: error[E0600]: stage0 code generation does not support values of type 'Box<Unit>' yet
    35 |     let unit = Box(value: ())

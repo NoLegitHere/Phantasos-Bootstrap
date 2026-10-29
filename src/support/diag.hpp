@@ -78,6 +78,9 @@ enum class DiagCode : u16 {
     NotOptional = 404,
     NotIterable = 405,
     RangeOutsideFor = 406,
+    NonExhaustiveMatch = 407,
+    UnreachableArm = 408,
+    MatchTooComplex = 409,
     NotCallable = 410,
     NoMatchingCall = 411,
     AmbiguousCall = 412,
@@ -88,6 +91,7 @@ enum class DiagCode : u16 {
     AliasCycle = 430,
     InvalidArrayIndex = 440,
     NotConstructible = 441,
+    InfiniteSize = 442,
     UnknownMember = 450,
     InvalidMemberReceiver = 451,
     AmbiguousMember = 452,
@@ -158,6 +162,9 @@ constexpr std::string_view diag_code(DiagCode code) {
         case DiagCode::NotOptional: return "E0404";
         case DiagCode::NotIterable: return "E0405";
         case DiagCode::RangeOutsideFor: return "E0406";
+        case DiagCode::NonExhaustiveMatch: return "E0407";
+        case DiagCode::UnreachableArm: return "E0408";
+        case DiagCode::MatchTooComplex: return "E0409";
         case DiagCode::NotCallable: return "E0410";
         case DiagCode::NoMatchingCall: return "E0411";
         case DiagCode::AmbiguousCall: return "E0412";
@@ -168,6 +175,7 @@ constexpr std::string_view diag_code(DiagCode code) {
         case DiagCode::AliasCycle: return "E0430";
         case DiagCode::InvalidArrayIndex: return "E0440";
         case DiagCode::NotConstructible: return "E0441";
+        case DiagCode::InfiniteSize: return "E0442";
         case DiagCode::UnknownMember: return "E0450";
         case DiagCode::InvalidMemberReceiver: return "E0451";
         case DiagCode::AmbiguousMember: return "E0452";

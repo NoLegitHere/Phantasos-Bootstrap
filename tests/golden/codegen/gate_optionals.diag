@@ -2,7 +2,7 @@ gate_optionals.phs:25:35: error[E0600]: stage0 code generation does not support 
    25 | fun area<S: Shape>(s: S?): Int? = s?.area()
       |                                   ^^^^^^^
 gate_optionals.phs:26:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   26 | struct Node(let value: Int, let next: Node?)
+   26 | struct Node(let value: Int, let next: [Node]?)
       |        ^^^^
 gate_optionals.phs:28:10: error[E0600]: stage0 code generation does not support values of type 'Unit?' yet
    28 | fun unit(x: Unit?) {}

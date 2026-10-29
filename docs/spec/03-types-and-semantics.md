@@ -1032,7 +1032,8 @@ the subset, so that nothing half-checked reaches code generation:
   It has no attributes, its conformances name plain interfaces, and its body holds only instance
   methods, `fun` or `mut fun`: no static methods, body fields, `init` or
   `deinit`. It cannot hold itself through its fields, directly, through
-  other structs or through their type arguments.
+  other structs or through their type arguments; holding itself inline is
+  `E0442` in any program (3.37).
   A plain interface is not generic, extends no other interface and has no
   attributes or `where` clause. Its body holds only instance methods that are
   not generic, with or without a default body. Type parameter bounds may
@@ -1611,8 +1612,8 @@ A case pattern against a value that is not an enum, or a pattern of
 another type, is `E0400`. A case the enum does not have is `E0450`. A
 pattern that calls a case without a payload, leaves out the payload of a
 case that has one, or has the wrong number of payload patterns is `E0413`.
-Patterns of generic enums are not checked yet, and `match` does not check
-that its arms cover every value yet.
+Patterns of generic enums are not checked yet. Which values the arms cover
+is 3.36.
 
 A `match` borrows the value it matches. Its bindings borrow the parts of
 that value they name, like the element of a `for` loop (3.33): assigning
@@ -1620,3 +1621,44 @@ to them is `E0502`, and moving them out, also into a closure that captures
 them, is `E0505`; use `.clone()` to move a copy. While an arm whose pattern
 binds a name runs, changing or moving the matched place is `E0506`,
 unless its type is `Copy`.
+
+## 3.36 Exhaustiveness [Core]
+
+The arms of a `match` must cover every value of the matched type, or the
+`match` is `E0407`. The error names a value no arm matches, such as
+`.num(_)` or `.wrap(.pair(_, false))`. Patterns nest, so `.pair(_, true)`
+and `.pair(_, false)` together cover `.pair`.
+
+- An enum's values are its cases, `Bool`'s are `true` and `false`, and an
+  optional's are `none` and the values of its inner type. A pattern with
+  no `none`, such as `true` against a `Bool?`, matches a present value.
+- Integers, floats, characters and strings have too many values to list,
+  so a `match` on them needs a `_` or binding arm.
+- An arm with a guard covers nothing, since its guard may be false.
+- `is T` covers the matched type when every value passes the test: `T`
+  is that type or a class it inherits from. Against an optional, such a
+  test covers the present values. Other `is` tests cover nothing on their
+  own.
+- A case whose payload no value has, such as one holding an enum without
+  cases or `Never`, needs no arm, and neither does the present value of
+  an optional of such a type. A `match` on a type no value has, such as
+  an enum without cases or a struct holding one, needs no arms. Generic
+  instances count as having values.
+
+An arm whose values are all matched by the arms before it, or that only
+matches cases no value has, never runs, and is warned about (`E0408`).
+Matches with patterns of generic enums are not checked yet. A `match` too
+large to check, needing more than two million row copies or a walk deeper
+than 512 columns, is `E0409`; split it into smaller ones.
+
+## 3.37 Finite size [Core]
+
+A struct or enum is stored inline, so one that holds itself inline has no
+finite size and is `E0442`. Inline means through a field or payload,
+including through other structs and enums, tuples, optionals and generic
+type arguments, as in `struct Node(next: Node?)` or
+`enum Expr { add(Expr, Expr) }`. Arrays, classes and function values hold
+their values elsewhere, so `enum Tree { node(kids: [Tree]) }` is fine. A
+generic struct that holds itself with ever larger arguments, as in
+`struct Grow<T>(inner: Grow<Box<T>>)`, is `E0442` too. Each declaration on
+the cycle is reported once; one that only holds such a type is not.

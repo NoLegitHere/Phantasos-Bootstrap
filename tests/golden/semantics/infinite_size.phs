@@ -1,0 +1,401 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// A struct or enum that holds itself inline, through fields, payloads,
+// tuples or optionals, has no finite size (3.37). Arrays, classes and
+// function values hold their values elsewhere.
+struct Node(value: Int, next: Link)
+struct Link(node: Node)
+struct Chain(value: Int, next: Chain?)
+struct Paired(inner: (Paired, Int))
+
+struct Box<T>(value: T)
+struct Looped<T>(inner: Box<Looped<T>>)
+struct Grow<T>(inner: Grow<Box<T>>)
+struct Doubling<T>(inner: Doubling<(T, T)>)
+// Each branch grows its own way.
+struct Branching<T>(a: Branching<[T]>, b: Branching<Box<T>>, c: Branching<(T, T)>)
+
+struct Body {
+    var me: Body? = none
+}
+
+enum Expr {
+    num(Int)
+    add(Expr, Expr)
+}
+
+// A struct that holds one of these without being on its cycle is not
+// reported again.
+struct Uses(node: Node)
+
+// These are fine.
+struct Nested(a: Box<Box<Int>>, kids: [Nested], f: fun(Nested) -> Int)
+class Shape(let next: Shape?)
+struct Holder(shape: Shape)
+enum Tree {
+    leaf(Int)
+    node(kids: [Tree])
+}
+struct Wrapper(inner: Box<Wrapper2>)
+struct Wrapper2(items: [Wrapper])
+
+// Tuples that share parts are walked once each.
+type T0 = Int
+type T1 = (T0, T0)
+type T2 = (T1, T1)
+type T3 = (T2, T2)
+type T4 = (T3, T3)
+type T5 = (T4, T4)
+type T6 = (T5, T5)
+type T7 = (T6, T6)
+type T8 = (T7, T7)
+type T9 = (T8, T8)
+type T10 = (T9, T9)
+type T11 = (T10, T10)
+type T12 = (T11, T11)
+type T13 = (T12, T12)
+type T14 = (T13, T13)
+type T15 = (T14, T14)
+type T16 = (T15, T15)
+type T17 = (T16, T16)
+type T18 = (T17, T17)
+type T19 = (T18, T18)
+type T20 = (T19, T19)
+type T21 = (T20, T20)
+type T22 = (T21, T21)
+type T23 = (T22, T22)
+type T24 = (T23, T23)
+type T25 = (T24, T24)
+type T26 = (T25, T25)
+type T27 = (T26, T26)
+type T28 = (T27, T27)
+type T29 = (T28, T28)
+type T30 = (T29, T29)
+type T31 = (T30, T30)
+type T32 = (T31, T31)
+type T33 = (T32, T32)
+type T34 = (T33, T33)
+type T35 = (T34, T34)
+type T36 = (T35, T35)
+type T37 = (T36, T36)
+type T38 = (T37, T37)
+type T39 = (T38, T38)
+type T40 = (T39, T39)
+struct Shared(value: T40)
+
+// A chain that only unwraps is fine, however long.
+type B0 = Int
+type B1 = Box<B0>
+type B2 = Box<B1>
+type B3 = Box<B2>
+type B4 = Box<B3>
+type B5 = Box<B4>
+type B6 = Box<B5>
+type B7 = Box<B6>
+type B8 = Box<B7>
+type B9 = Box<B8>
+type B10 = Box<B9>
+type B11 = Box<B10>
+type B12 = Box<B11>
+type B13 = Box<B12>
+type B14 = Box<B13>
+type B15 = Box<B14>
+type B16 = Box<B15>
+type B17 = Box<B16>
+type B18 = Box<B17>
+type B19 = Box<B18>
+type B20 = Box<B19>
+type B21 = Box<B20>
+type B22 = Box<B21>
+type B23 = Box<B22>
+type B24 = Box<B23>
+type B25 = Box<B24>
+type B26 = Box<B25>
+type B27 = Box<B26>
+type B28 = Box<B27>
+type B29 = Box<B28>
+type B30 = Box<B29>
+type B31 = Box<B30>
+type B32 = Box<B31>
+type B33 = Box<B32>
+type B34 = Box<B33>
+type B35 = Box<B34>
+type B36 = Box<B35>
+type B37 = Box<B36>
+type B38 = Box<B37>
+type B39 = Box<B38>
+type B40 = Box<B39>
+type B41 = Box<B40>
+type B42 = Box<B41>
+type B43 = Box<B42>
+type B44 = Box<B43>
+type B45 = Box<B44>
+type B46 = Box<B45>
+type B47 = Box<B46>
+type B48 = Box<B47>
+type B49 = Box<B48>
+type B50 = Box<B49>
+type B51 = Box<B50>
+type B52 = Box<B51>
+type B53 = Box<B52>
+type B54 = Box<B53>
+type B55 = Box<B54>
+type B56 = Box<B55>
+type B57 = Box<B56>
+type B58 = Box<B57>
+type B59 = Box<B58>
+type B60 = Box<B59>
+type B61 = Box<B60>
+type B62 = Box<B61>
+type B63 = Box<B62>
+type B64 = Box<B63>
+type B65 = Box<B64>
+type B66 = Box<B65>
+type B67 = Box<B66>
+type B68 = Box<B67>
+type B69 = Box<B68>
+type B70 = Box<B69>
+type B71 = Box<B70>
+type B72 = Box<B71>
+type B73 = Box<B72>
+type B74 = Box<B73>
+type B75 = Box<B74>
+type B76 = Box<B75>
+type B77 = Box<B76>
+type B78 = Box<B77>
+type B79 = Box<B78>
+type B80 = Box<B79>
+type B81 = Box<B80>
+type B82 = Box<B81>
+type B83 = Box<B82>
+type B84 = Box<B83>
+type B85 = Box<B84>
+type B86 = Box<B85>
+type B87 = Box<B86>
+type B88 = Box<B87>
+type B89 = Box<B88>
+type B90 = Box<B89>
+type B91 = Box<B90>
+type B92 = Box<B91>
+type B93 = Box<B92>
+type B94 = Box<B93>
+type B95 = Box<B94>
+type B96 = Box<B95>
+type B97 = Box<B96>
+type B98 = Box<B97>
+type B99 = Box<B98>
+type B100 = Box<B99>
+type B101 = Box<B100>
+type B102 = Box<B101>
+type B103 = Box<B102>
+type B104 = Box<B103>
+type B105 = Box<B104>
+type B106 = Box<B105>
+type B107 = Box<B106>
+type B108 = Box<B107>
+type B109 = Box<B108>
+type B110 = Box<B109>
+type B111 = Box<B110>
+type B112 = Box<B111>
+type B113 = Box<B112>
+type B114 = Box<B113>
+type B115 = Box<B114>
+type B116 = Box<B115>
+type B117 = Box<B116>
+type B118 = Box<B117>
+type B119 = Box<B118>
+type B120 = Box<B119>
+type B121 = Box<B120>
+type B122 = Box<B121>
+type B123 = Box<B122>
+type B124 = Box<B123>
+type B125 = Box<B124>
+type B126 = Box<B125>
+type B127 = Box<B126>
+type B128 = Box<B127>
+type B129 = Box<B128>
+type B130 = Box<B129>
+type B131 = Box<B130>
+type B132 = Box<B131>
+type B133 = Box<B132>
+type B134 = Box<B133>
+type B135 = Box<B134>
+type B136 = Box<B135>
+type B137 = Box<B136>
+type B138 = Box<B137>
+type B139 = Box<B138>
+type B140 = Box<B139>
+type B141 = Box<B140>
+type B142 = Box<B141>
+type B143 = Box<B142>
+type B144 = Box<B143>
+type B145 = Box<B144>
+type B146 = Box<B145>
+type B147 = Box<B146>
+type B148 = Box<B147>
+type B149 = Box<B148>
+type B150 = Box<B149>
+type B151 = Box<B150>
+type B152 = Box<B151>
+type B153 = Box<B152>
+type B154 = Box<B153>
+type B155 = Box<B154>
+type B156 = Box<B155>
+type B157 = Box<B156>
+type B158 = Box<B157>
+type B159 = Box<B158>
+type B160 = Box<B159>
+type B161 = Box<B160>
+type B162 = Box<B161>
+type B163 = Box<B162>
+type B164 = Box<B163>
+type B165 = Box<B164>
+type B166 = Box<B165>
+type B167 = Box<B166>
+type B168 = Box<B167>
+type B169 = Box<B168>
+type B170 = Box<B169>
+type B171 = Box<B170>
+type B172 = Box<B171>
+type B173 = Box<B172>
+type B174 = Box<B173>
+type B175 = Box<B174>
+type B176 = Box<B175>
+type B177 = Box<B176>
+type B178 = Box<B177>
+type B179 = Box<B178>
+type B180 = Box<B179>
+type B181 = Box<B180>
+type B182 = Box<B181>
+type B183 = Box<B182>
+type B184 = Box<B183>
+type B185 = Box<B184>
+type B186 = Box<B185>
+type B187 = Box<B186>
+type B188 = Box<B187>
+type B189 = Box<B188>
+type B190 = Box<B189>
+type B191 = Box<B190>
+type B192 = Box<B191>
+type B193 = Box<B192>
+type B194 = Box<B193>
+type B195 = Box<B194>
+type B196 = Box<B195>
+type B197 = Box<B196>
+type B198 = Box<B197>
+type B199 = Box<B198>
+type B200 = Box<B199>
+type B201 = Box<B200>
+type B202 = Box<B201>
+type B203 = Box<B202>
+type B204 = Box<B203>
+type B205 = Box<B204>
+type B206 = Box<B205>
+type B207 = Box<B206>
+type B208 = Box<B207>
+type B209 = Box<B208>
+type B210 = Box<B209>
+type B211 = Box<B210>
+type B212 = Box<B211>
+type B213 = Box<B212>
+type B214 = Box<B213>
+type B215 = Box<B214>
+type B216 = Box<B215>
+type B217 = Box<B216>
+type B218 = Box<B217>
+type B219 = Box<B218>
+type B220 = Box<B219>
+type B221 = Box<B220>
+type B222 = Box<B221>
+type B223 = Box<B222>
+type B224 = Box<B223>
+type B225 = Box<B224>
+type B226 = Box<B225>
+type B227 = Box<B226>
+type B228 = Box<B227>
+type B229 = Box<B228>
+type B230 = Box<B229>
+type B231 = Box<B230>
+type B232 = Box<B231>
+type B233 = Box<B232>
+type B234 = Box<B233>
+type B235 = Box<B234>
+type B236 = Box<B235>
+type B237 = Box<B236>
+type B238 = Box<B237>
+type B239 = Box<B238>
+type B240 = Box<B239>
+type B241 = Box<B240>
+type B242 = Box<B241>
+type B243 = Box<B242>
+type B244 = Box<B243>
+type B245 = Box<B244>
+type B246 = Box<B245>
+type B247 = Box<B246>
+type B248 = Box<B247>
+type B249 = Box<B248>
+type B250 = Box<B249>
+type B251 = Box<B250>
+type B252 = Box<B251>
+type B253 = Box<B252>
+type B254 = Box<B253>
+type B255 = Box<B254>
+type B256 = Box<B255>
+type B257 = Box<B256>
+type B258 = Box<B257>
+type B259 = Box<B258>
+type B260 = Box<B259>
+type B261 = Box<B260>
+type B262 = Box<B261>
+type B263 = Box<B262>
+type B264 = Box<B263>
+type B265 = Box<B264>
+type B266 = Box<B265>
+type B267 = Box<B266>
+type B268 = Box<B267>
+type B269 = Box<B268>
+type B270 = Box<B269>
+type B271 = Box<B270>
+type B272 = Box<B271>
+type B273 = Box<B272>
+type B274 = Box<B273>
+type B275 = Box<B274>
+type B276 = Box<B275>
+type B277 = Box<B276>
+type B278 = Box<B277>
+type B279 = Box<B278>
+type B280 = Box<B279>
+type B281 = Box<B280>
+type B282 = Box<B281>
+type B283 = Box<B282>
+type B284 = Box<B283>
+type B285 = Box<B284>
+type B286 = Box<B285>
+type B287 = Box<B286>
+type B288 = Box<B287>
+type B289 = Box<B288>
+type B290 = Box<B289>
+type B291 = Box<B290>
+type B292 = Box<B291>
+type B293 = Box<B292>
+type B294 = Box<B293>
+type B295 = Box<B294>
+type B296 = Box<B295>
+type B297 = Box<B296>
+type B298 = Box<B297>
+type B299 = Box<B298>
+type B300 = Box<B299>
+struct Unwraps(value: B300)

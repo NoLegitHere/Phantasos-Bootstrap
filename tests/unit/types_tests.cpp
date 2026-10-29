@@ -587,7 +587,7 @@ enum Outer {
 }
 fun eval(o: Outer, n: Int?): Int {
     let first: Int = match o {
-        .wrap(.a(small)) -> 1
+        .wrap(.a(small)) if small > 0 -> 1
         Outer.pair(flag, count) -> 2
         .text(words) | .text(words) -> 3
         .wrap(Inner.b) -> 4
@@ -645,6 +645,72 @@ fun bad(t: Tok, i: Int) {
     CHECK(errors.binding("x") == Type::Error);
 }
 
+// Coverage stays linear in the arms of wide matches, rejects one too large
+// to check, and the size check walks long chains of types once.
+void wide_matches_and_long_chains() {
+    constexpr int kWide = 10000;
+    std::string wide = "enum E {\n";
+    for (int i = 0; i < kWide; ++i) wide += "    c" + std::to_string(i) + "(Int)\n";
+    wide += "}\nfun f(e: E, n: Int): Int {\n    let a = match e {\n";
+    for (int i = 0; i < kWide; ++i) wide += "        .c" + std::to_string(i) + "(x) -> x\n";
+    wide += "    }\n    let b = match n {\n";
+    for (int i = 0; i < kWide; ++i) wide += "        " + std::to_string(i) + " -> 1\n";
+    wide += "        _ -> 0\n    }\n    return a + b\n}\n";
+    Frontend f;
+    f.check(wide, {}, false);
+
+    // Each outer case's payload column lists the inner cases once.
+    std::string nested = "enum Inner {\n";
+    for (int i = 0; i < 3000; ++i) nested += "    x" + std::to_string(i) + "\n";
+    nested += "}\nenum Outer {\n";
+    for (int i = 0; i < 3000; ++i) nested += "    c" + std::to_string(i) + "(Inner)\n";
+    nested += "}\nfun f(o: Outer): Int {\n    return match o {\n";
+    for (int i = 0; i < 3000; ++i) nested += "        .c" + std::to_string(i) + "(_) -> 0\n";
+    nested += "    }\n}\n";
+    Frontend inner;
+    inner.check(nested, {}, false);
+
+    // Each case meets every guarded `_` arm before it.
+    std::string complex = "enum E {\n";
+    for (int i = 0; i < 2000; ++i) complex += "    c" + std::to_string(i) + "(Int)\n";
+    complex += "}\nfun f(e: E, g: Bool): Int {\n    return match e {\n";
+    for (int i = 0; i < 1100; ++i) complex += "        _ if g -> 0\n";
+    for (int i = 0; i < 2000; ++i) complex += "        .c" + std::to_string(i) + "(x) -> x\n";
+    complex += "    }\n}\n";
+    Frontend too_complex;
+    too_complex.check(complex, {DiagCode::MatchTooComplex}, false);
+
+    // Alternatives are counted as they are expanded.
+    std::string alternatives;
+    for (int i = 0; i < 1500; ++i) alternatives += i ? " | 0" : "0";
+    std::string pairs = "enum P {\n    pair(Int, Int)\n    other\n}\nfun f(p: P): Int {\n    return match p {\n        .pair(" +
+                        alternatives + ", " + alternatives + ") -> 1\n        _ -> 0\n    }\n}\n";
+    Frontend expanded;
+    expanded.check(pairs, {DiagCode::MatchTooComplex}, false);
+
+    // A generic struct's field reached through a long alias chain is
+    // substituted without recursion.
+    std::string aliases = "type T0 = Int\n";
+    for (int i = 1; i <= 10000; ++i) aliases += "type T" + std::to_string(i) + " = (T" + std::to_string(i - 1) + ", Int)\n";
+    aliases += "struct S<T>(value: T10000, t: T)\n";
+    Frontend chained;
+    chained.check(aliases, {}, false);
+
+    // Matching a present value through many optional layers is too deep.
+    std::string optional = "fun f(x: Bool";
+    for (int i = 0; i < 1000; ++i) optional += "? ";
+    optional += "): Int {\n    return match x { true -> 1, _ -> 0 }\n}\n";
+    Frontend deep;
+    deep.check(optional, {DiagCode::MatchTooComplex}, false);
+
+    // Only the two structs on the cycle at the end are reported.
+    std::string chain;
+    for (int i = 0; i < kWide - 1; ++i) chain += "struct S" + std::to_string(i) + "(a: S" + std::to_string(i + 1) + ", b: Int)\n";
+    chain += "struct S" + std::to_string(kWide - 1) + "(a: S" + std::to_string(kWide - 2) + "?)\n";
+    Frontend sizes;
+    sizes.check(chain, {DiagCode::InfiniteSize, DiagCode::InfiniteSize}, false);
+}
+
 int main() {
     retained_inference_and_context();
     diagnostics_and_suppression();
@@ -660,4 +726,5 @@ int main() {
     optionals();
     enum_cases();
     match_patterns();
+    wide_matches_and_long_chains();
 }

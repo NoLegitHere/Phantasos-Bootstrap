@@ -1,5 +1,5 @@
 gate_tuples.phs:19:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   19 | struct Looped(inner: (Looped, Int))
+   19 | struct Looped(inner: ([Looped], Int))
       |        ^^^^^^
 gate_tuples.phs:21:10: error[E0600]: stage0 code generation does not support values of type '(Float64, Int)' yet
    21 | fun real(t: (Float64, Int)): Int = t.1

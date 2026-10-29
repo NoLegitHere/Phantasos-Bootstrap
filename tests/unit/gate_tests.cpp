@@ -253,10 +253,10 @@ fun main(): Int {
     deep.gate("struct W<T>(x: T) {\n    fun grow(n: Int): Int {\n        if n == 0 { return 0 }\n"
               "        return W(x: (x, x)).grow(n - 1)\n    }\n}\nfun main(): Int = W(x: 1).grow(3)\n",
               {DiagCode::InstanceLimit});
-    // A struct that holds itself through another's type argument has no
-    // finite layout, and Unit is not a type argument of a value.
+    // Stage0 has no layout for a struct that holds itself through another's
+    // type argument, even in an array, and Unit is not a type argument of a value.
     Frontend looped;
-    looped.gate("struct B<T>(x: T)\nstruct R<T>(b: B<R<T>>)\nfun main() {}\n", {DiagCode::UnsupportedCodegen});
+    looped.gate("struct B<T>(x: T)\nstruct R<T>(b: B<[R<T>]>)\nfun main() {}\n", {DiagCode::UnsupportedCodegen});
     Frontend unit;
     unit.gate("struct B<T>(x: T)\nfun main() {\n    let b = B(x: ())\n}\n", {DiagCode::UnsupportedCodegen});
 }

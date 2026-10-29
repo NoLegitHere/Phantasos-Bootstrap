@@ -35,6 +35,6 @@ fun scopes(first: Int = outer, second: Int = first) {
     if let x = maybe { x.read() }
     while let x = maybe { x.read(); break }
     for x in [1, 2] { x }
-    match picked { .Some(x) | .Other(x) if x > 0 -> x }
+    match picked { .Some(x) | .Other(x) if x > 0 -> x, _ -> 0 }
     defer { outer }
 }

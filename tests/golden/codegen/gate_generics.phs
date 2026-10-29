@@ -28,7 +28,7 @@ struct Box<T>(value: T) {
     fun same<U>(x: U): (T, U) = (value, x)
 }
 
-struct Looped<T>(inner: Box<Looped<T>>)
+struct Looped<T>(inner: Box<[Looped<T>]>)
 
 fun boxes(): Int {
     let b = Box(value: 1).same("s")

@@ -2,7 +2,7 @@ gate_structs.phs:20:8: error[E0600]: stage0 code generation does not support str
    20 | struct Empty()
       |        ^^^^^
 gate_structs.phs:22:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   22 | struct Node(value: Int, next: Link)
+   22 | struct Node(value: Int, next: [Link])
       |        ^^^^
 gate_structs.phs:23:8: error[E0600]: stage0 code generation does not support recursive structs yet
    23 | struct Link(node: Node)

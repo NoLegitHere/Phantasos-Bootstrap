@@ -707,6 +707,10 @@ void optionals() {
     agrees("fun main(): Int {\n    let big: UInt = 18446744073709551615\n"
            "    return Int(Int8.checked(1000) ?? 1) + Int(UInt8.checked(-1) ?? 2) + (Int.checked(big) ?? 4) +\n"
            "        Int.truncating(UInt.checked(8) ?? 0) + Int(Int16.checked(-300) ?? 0)\n}\n");
+    agrees("fun main(): Int {\n    let minus: Int8 = -1\n    let big: UInt = 18446744073709551615\n"
+           "    let absent: Int? = none\n    var lifted = 0\n    if let x: Int? = absent { lifted = 8 }\n"
+           "    return Int.truncating(UInt.checked(minus) ?? 1) + Int(Int8.checked(big) ?? 2) +\n"
+           "        Int(UInt8.checked(minus) ?? 4) + lifted\n}\n");
     agrees("fun main(): Int {\n    let x: Int8? = none\n    return Int(x!)\n}\n");
 }
 

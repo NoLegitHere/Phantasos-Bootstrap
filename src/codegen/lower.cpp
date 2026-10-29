@@ -736,12 +736,14 @@ private:
     }
 
     // A condition's Bool: for `let`, whether the optional it tests, kept in
-    // tested, holds a value.
+    // tested, holds a value. An annotation can make the value lift first, so
+    // `if let x: Int? = opt` binds opt itself even when it is `none`.
     Reg test(const Cond& cond, Reg& tested) {
         if (!cond.is_let) return any(cond.expr);
         tested = any(cond.expr);
         // A diverging value has already ended the block.
         if (!tested.valid()) return {};
+        tested = fit(tested, optional(lower_type(binding_type(values_.at(cond.name.span.lo)))));
         const Reg some = reg(Type::Bool);
         emit({.op = Op::Field, .dst = some, .a = tested, .imm = 0});
         return some;
@@ -1329,15 +1331,15 @@ private:
     }
 
     // `T.checked(x)`: x as a T when it fits, else `none`. It fits when
-    // truncating keeps its bits and, between 64-bit types of different
-    // signedness, when it is not negative as the signed one.
+    // truncating keeps its bits and, between types of different signedness,
+    // when it is not negative as the signed one.
     Reg checked_conversion(Reg source, Type type) {
         const Type from = fun_->regs[source.id], to = program_.layouts[layout_index(type)].fields[1];
         const Reg narrowed = reg(to), fits = reg(Type::Bool);
         emit({.op = Op::Truncate, .dst = narrowed, .a = source});
         emit({.op = Op::Eq, .dst = fits, .a = narrowed, .b = source});
         Reg ok = fits;
-        if (bit_width(to) == 64 && bit_width(from) == 64 && is_signed(from) != is_signed(to)) {
+        if (is_signed(from) != is_signed(to)) {
             const Reg signed_value = is_signed(from) ? source : narrowed;
             const Reg sign = reg(Type::Bool);
             emit({.op = Op::Ge, .dst = sign, .a = signed_value, .b = constant(fun_->regs[signed_value.id], 0)});

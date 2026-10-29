@@ -105,5 +105,11 @@ fun main(): Int {
     print(UInt.checked(-5) ?? 4)
     let largest: UInt = 18446744073709551615
     print(Int.checked(largest) ?? -1)
+    let minus: Int8 = -1
+    print(UInt.checked(minus) ?? 6)
+    print(Int(Int8.checked(largest) ?? 9))
+
+    let absent: Int? = none
+    if let inner: Int? = absent { print(inner == none) }
     return or_zero(find(10))
 }

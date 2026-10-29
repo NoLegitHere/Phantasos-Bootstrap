@@ -669,6 +669,13 @@ void optionals() {
     CHECK(result("fun main(): Int {\n    let big: UInt = 18446744073709551615\n"
                  "    return Int(Int8.checked(1000) ?? 1) + Int(UInt8.checked(-1) ?? 2) + (Int.checked(big) ?? 4) +\n"
                  "        Int.truncating(UInt.checked(8) ?? 0)\n}\n") == 1 + 2 + 4 + 8);
+    // Between signednesses, a negative value fits neither way, whatever the widths.
+    CHECK(result("fun main(): Int {\n    let minus: Int8 = -1\n    let big: UInt = 18446744073709551615\n"
+                 "    return Int.truncating(UInt.checked(minus) ?? 1) + Int(Int8.checked(big) ?? 2) +\n"
+                 "        Int(UInt8.checked(minus) ?? 4)\n}\n") == 1 + 2 + 4);
+    // An annotation that adds a level lifts before the test, so `none` is bound.
+    CHECK(result("fun main(): Int {\n    let absent: Int? = none\n"
+                 "    if let x: Int? = absent { return 1 }\n    return 0\n}\n") == 1);
     // `!` reads the value, or panics with the expression's location.
     CHECK(result("fun main(): Int {\n    let x: Int? ? = 4\n    return x!! + 1\n}\n") == 5);
     Frontend p;

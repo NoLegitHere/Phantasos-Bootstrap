@@ -990,6 +990,31 @@ void enums() {
         "    let q = Q(x: [o, none], n: 5)\n"
         "    return s.x[0].0.n + q.x.count + q.n - 8\n"
         "}\n") == 0);
+    // Payloads are lifted to optional fields, and a closure that clones a
+    // capture through a clone function keeps its own function.
+    CHECK(result(
+        "enum E {\n"
+        "    a(Int?)\n"
+        "    b(x: Int? ?, y: Bool)\n"
+        "}\n"
+        "struct Node(var kids: [Node], let v: Int)\n"
+        "fun keep<T>(xs: [T]): [fun() -> T] {\n"
+        "    var out: [fun() -> T] = []\n"
+        "    for x in xs { out.append({ -> x }) }\n"
+        "    return out\n"
+        "}\n"
+        "fun main(): Int {\n"
+        "    let e = E.a(3)\n"
+        "    let f: E? = .b(x: 4, y: true)\n"
+        "    var g = [Node(kids: [Node(kids: [], v: 2)], v: 1)]\n"
+        "    let fs = keep(g)\n"
+        "    g[0].kids.append(Node(kids: [], v: 3))\n"
+        "    let n = fs[0]()\n"
+        "    let es = [e, E.a(none)]\n"
+        "    var r = n.kids.count * 10 + g[0].kids.count + es.count - 14\n"
+        "    if f == none { r += 100 }\n"
+        "    return r\n"
+        "}\n") == 0);
 }
 
 int main() {

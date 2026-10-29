@@ -1438,7 +1438,9 @@ private:
     // A closure value: its function, named after the function that creates it,
     // and a new environment holding a copy of each captured value.
     Reg make_closure(const ClosureExpr& closure) {
-        PendingClosure pending{&closure, static_cast<u32>(program_.functions.size()), {}, {}, self_type_, env_};
+        // The closure's function is numbered once its captures are in place,
+        // since cloning one can add a clone function first.
+        PendingClosure pending{&closure, 0, {}, {}, self_type_, env_};
         Layout layout;
         std::vector<Reg> captured;
         for (const auto& capture : resolution_.captures(&closure)) {
@@ -1457,6 +1459,7 @@ private:
             captured.push_back(self_);
         }
         const auto creator = static_cast<usize>(fun_ - program_.functions.data());
+        pending.function = static_cast<u32>(program_.functions.size());
         auto& out = program_.functions.emplace_back();
         fun_ = &program_.functions[creator];
         out.name = std::format("{}$closure{}", fun_->name, closure_counts_[creator]++);
@@ -1464,7 +1467,7 @@ private:
         if (!layout.fields.empty()) {
             layout.name = out.name;
             layout.kind = Layout::Environment;
-                out.environment = static_cast<u32>(program_.layouts.size());
+            out.environment = static_cast<u32>(program_.layouts.size());
             program_.layouts.push_back(std::move(layout));
         }
         const Reg dst = reg(lower_type(scalar(&closure)));
@@ -2065,6 +2068,12 @@ private:
                         const auto& layout = program_.layouts[layout_index(fun.regs[inst.dst.id])];
                         for (usize i = 0; i < inst.args.size(); ++i)
                             inst.args[i] = lift(fun, out, inst.args[i], layout.fields[i]);
+                        break;
+                    }
+                    case Op::Case: {
+                        const auto& layout = program_.layouts[layout_index(fun.regs[inst.dst.id])];
+                        for (usize i = 0; i < inst.args.size(); ++i)
+                            inst.args[i] = lift(fun, out, inst.args[i], layout.fields[layout.payloads[inst.imm] + i]);
                         break;
                     }
                     case Op::With:

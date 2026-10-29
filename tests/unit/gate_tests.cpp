@@ -114,7 +114,7 @@ void rejected_bodies() {
 fun other(): Int = 1
 fun main(): Int {
     let c = 'x'
-    let r = 1 << 2
+    let r = 1.5
     defer {}
     let m: Int = match 1 { _ -> 2 }
     let u: Int = unsafe { 3 }

@@ -75,6 +75,8 @@ Op binary_op(BinOp op) {
         case BinOp::BitAnd: return Op::And;
         case BinOp::BitOr: return Op::Or;
         case BinOp::BitXor: return Op::Xor;
+        case BinOp::Shl: return Op::Shl;
+        case BinOp::Shr: return Op::Shr;
         case BinOp::Eq: return Op::Eq;
         case BinOp::Ne: return Op::Ne;
         case BinOp::Lt: return Op::Lt;
@@ -95,6 +97,8 @@ Op assign_op(AssignOp op) {
         case AssignOp::BitAnd: return Op::And;
         case AssignOp::BitOr: return Op::Or;
         case AssignOp::BitXor: return Op::Xor;
+        case AssignOp::Shl: return Op::Shl;
+        case AssignOp::Shr: return Op::Shr;
         default: PHS_ASSERT(false && "assignment outside the code generation subset"); unreachable();
     }
 }

@@ -70,14 +70,12 @@ std::string_view binary_name(BinOp op) {
     switch (op) {
         case BinOp::Coalesce: return "'?\?'";
         case BinOp::Range: case BinOp::RangeExcl: return "ranges";
-        case BinOp::Shl: case BinOp::Shr: return "shifts";
         default: return "this operator";
     }
 }
 
 bool supported_binary(BinOp op) {
-    return op != BinOp::Range && op != BinOp::RangeExcl && op != BinOp::Shl &&
-           op != BinOp::Shr;
+    return op != BinOp::Range && op != BinOp::RangeExcl;
 }
 
 bool supported_unary(UnOp op) { return op == UnOp::Neg || op == UnOp::Not || op == UnOp::BitNot; }
@@ -594,10 +592,6 @@ private:
             case StmtKind::Expr: work.push_back({cast<ExprStmt>(&stmt)->expr, false}); return;
             case StmtKind::Assign: {
                 const auto& assign = *cast<AssignStmt>(&stmt);
-                if (assign.op == AssignOp::Shl || assign.op == AssignOp::Shr) {
-                    unsupported(stmt.span, "shifts");
-                    return;
-                }
                 // A local, or a field of a local struct at any depth; the
                 // target's member reads check the fields themselves.
                 if (!place(assign.target)) {

@@ -68,7 +68,7 @@ struct Reg {
 enum class Op : u8 {
     Const, Copy, Str,
     Neg, Not, BitNot,
-    Add, Sub, Mul, Div, Rem, WrapAdd, WrapSub, WrapMul, And, Or, Xor,
+    Add, Sub, Mul, Div, Rem, WrapAdd, WrapSub, WrapMul, And, Or, Xor, Shl, Shr,
     Eq, Ne, Lt, Le, Gt, Ge,
     Widen, Truncate,
     Call,

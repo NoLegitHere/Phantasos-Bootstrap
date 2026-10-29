@@ -774,6 +774,18 @@ void growth_and_loops() {
            "    return words.count + grid[0][1] * 1000 + a.count * 100000\n}\n");
 }
 
+void shifts() {
+    agrees("fun id(x: Int): Int = x\nfun main(): Int {\n    let a: UInt8 = 0b1011_0001\n    let s: Int8 = -64\n    let w: UInt64 = 0xF000_0000_0000_0001\n    var h: Int32 = -1\n    h <<= 31\n    var u: UInt16 = 0x8001\n    u >>= 15\n    let big: Int = -9223372036854775807 - 1\n    var r = Int(a << 1) + Int(a >> 4) * 1000 + Int(s >> 2) * 100000 + Int(s << 1)\n    r += Int.truncating(w >> 63) + Int(u) * 10 + Int(h >> 30) + (big >> 63) + id(1) << 4\n    return r\n}\n");
+    // Amounts at the width of each type, or negative, trap.
+    for (std::string_view type : {"Int8", "UInt8", "Int16", "UInt16", "Int32", "UInt32", "Int64", "UInt64"})
+        for (std::string_view amount : {"0", "1", "7", "8", "15", "16", "31", "32", "63", "64"}) {
+            agrees(std::format("fun main(): Int {{\n    let x: {0} = 1\n    let n: {0} = {1}\n    let y: {0} = x << n\n"
+                               "    let z: {0} = ~y >> n\n    return Int.truncating(y) + Int.truncating(z)\n}}\n",
+                               type, amount));
+        }
+    agrees("fun minus(): Int32 = -1\nfun main(): Int = Int(Int32(8) >> minus())\n");
+}
+
 void array_ownership() {
     // Clones and generic copies of arrays (as in mir_tests).
     agrees("struct Bag(var items: [Int], var name: String)\n"
@@ -864,6 +876,7 @@ int main() {
     arrays();
     growth_and_loops();
     array_ownership();
+    shifts();
     random_expressions();
     std::println("x86_64 tests passed");
 }

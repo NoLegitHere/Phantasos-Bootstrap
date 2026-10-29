@@ -1,6 +1,6 @@
-gate_closures.phs:21:31: error[E0600]: stage0 code generation does not support shifts yet
-   21 |     let shifted = { x: Int -> x << 1 }
-      |                               ^^^^^^
+gate_closures.phs:21:9: error[E0600]: stage0 code generation does not support values of type 'fun(Int) -> Char' yet
+   21 |     let letter = { x: Int -> 'c' }
+      |         ^^^^^^
 gate_closures.phs:22:9: error[E0600]: stage0 code generation does not support values of type 'fun() -> Float64' yet
    22 |     let half = { -> 1.5 }
       |         ^^^^

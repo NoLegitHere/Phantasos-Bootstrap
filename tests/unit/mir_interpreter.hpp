@@ -38,7 +38,7 @@ using mir::Type;
 struct Outcome {
     bool trapped = false;
     u64 value = 0;
-    u32 trap = 0;  // the x86_64 trap code: 1 for overflow, 2 for division by zero
+    u32 trap = 0;  // the x86_64 trap code: 1 for overflow, 2 for division by zero, 5 for a panic
     std::string output;  // what print wrote to standard output
     std::vector<u64> params;  // final parameter values, for inout write-back
 };
@@ -69,6 +69,15 @@ public:
     }
 
 private:
+    // A zero value: aggregates get zero fields, recursively.
+    u64 zero(Type type) {
+        if (!mir::is_aggregate(type)) return 0;
+        std::vector<u64> fields;
+        for (const Type field : program_.layouts[mir::layout_index(type)].fields) fields.push_back(zero(field));
+        aggregates_.push_back(std::move(fields));
+        return aggregates_.size() - 1;
+    }
+
     Outcome call(u32 index, std::vector<u64> args) {
         CHECK(++depth_ < 10000);
         const auto& fun = program_.functions[index];
@@ -168,6 +177,12 @@ private:
                     regs[inst.dst.id] = aggregates_.size() - 1;
                     continue;
                 }
+                if (inst.op == Op::None) {
+                    const Type type = fun.regs[inst.dst.id];
+                    CHECK(mir::is_aggregate(type) && program_.layouts[mir::layout_index(type)].kind == mir::Layout::Optional);
+                    regs[inst.dst.id] = zero(type);
+                    continue;
+                }
                 if (inst.op == Op::Field) {
                     const Type type = fun.regs[inst.a.id];
                     CHECK(mir::is_aggregate(type));
@@ -253,7 +268,7 @@ private:
                     case Op::Widen: out = a; CHECK(fits(type, a)); break;
                     case Op::Truncate: out = normalize(type, a); break;
                     case Op::Call: case Op::Print: case Op::Make: case Op::Field: case Op::With:
-                    case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: break;
+                    case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None: break;
                 }
                 if (trap) return {true, 0, trap};
                 regs[inst.dst.id] = out;
@@ -266,6 +281,9 @@ private:
                     return {false, b.value.valid() ? regs[b.value.id] : 0, 0, {},
                             std::vector<u64>(regs.begin(), regs.begin() + fun.params)};
                 case Term::Unreachable: CHECK(false && "reached unreachable");
+                case Term::Panic:
+                    CHECK(b.message < program_.strings.size());
+                    return {true, 0, 5};
             }
         }
     }

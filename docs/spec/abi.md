@@ -71,6 +71,10 @@ pointer to a subclass object is also a valid pointer to its superclass.
   alignment.
 - **Niche optimization**: `T?` for a class reference, `shared T`, `weak T`,
   or a non-null pointer is a single pointer, with `none == 0`.
+- Any other `T?` is laid out like a struct of a `Bool` tag, set when it holds
+  a value, and the value (A.2), and is passed like that struct. `none` is all
+  zero bytes. So `Int?` puts the value at 0 and the tag at 8 and takes 16
+  bytes, and `Int??` holds an `Int?` at 0 and its tag at 16.
 
 ## A.6 Calling convention (native)
 Phantasos-native calls use the platform C convention, plus hidden

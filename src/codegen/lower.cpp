@@ -100,8 +100,8 @@ Op assign_op(AssignOp op) {
 
 class Lowerer {
 public:
-    Lowerer(const Resolution& resolution, ScalarTypes& types, const Interner& names)
-        : resolution_(resolution), types_(types), names_(names) {
+    Lowerer(const Resolution& resolution, ScalarTypes& types, const Interner& names, const SourceManager& sources)
+        : resolution_(resolution), types_(types), names_(names), sources_(sources) {
         for (usize id = 0; id < resolution.bindings().size(); ++id) {
             const auto& binding = resolution.bindings()[id];
             if (binding.item) items_.emplace(binding.item, BindingId{id});
@@ -169,6 +169,7 @@ public:
                 closure_function(pending);
             }
         }
+        for (auto& fun : program_.functions) lift(fun);
         return std::move(program_);
     }
 
@@ -233,6 +234,7 @@ private:
     // ------------------------------------------------------------ facts
 
     Type lower_type(ScalarType type) {
+        if (type.optional_depth) return optional(lower_type(type.element()));
         if (type.kind == ScalarType::Tuple) return tuple(type);
         if (type.kind == ScalarType::Function) return function_type(type);
         if (type.kind != ScalarType::Nominal) return scalar_type(type);
@@ -256,6 +258,25 @@ private:
         program_.layouts.push_back(std::move(layout));
         tuples_.emplace(type.detail, index);
         return aggregate(index);
+    }
+
+    // An optional's layout, built once per value type: its tag and its value.
+    Type optional(Type value) {
+        if (const auto it = optionals_.find(static_cast<u32>(value)); it != optionals_.end()) return aggregate(it->second);
+        Layout layout;
+        layout.name = type_name(program_, value) + "?";
+        if (layout.name.front() == '@') layout.name.erase(0, 1);
+        layout.kind = Layout::Optional;
+        layout.fields = {Type::Bool, value};
+        layout.names = {"some", "value"};
+        place_fields(program_, layout);
+        const auto index = static_cast<u32>(program_.layouts.size());
+        program_.layouts.push_back(std::move(layout));
+        optionals_.emplace(static_cast<u32>(value), index);
+        return aggregate(index);
+    }
+    bool is_optional(Type type) const {
+        return is_aggregate(type) && program_.layouts[layout_index(type)].kind == Layout::Optional;
     }
 
     // A function type's layout, built once per type: the code and environment
@@ -356,9 +377,14 @@ private:
         return checked && checked->kind == CallKind::Method &&
                mutating(*cast<FunItem>(resolution_.binding(checked->target).item));
     }
-    // A used branch's type is that of its first tail with a value.
+    // A used branch's type is the one its context expects, when the checker
+    // knows it; otherwise that of its first tail with a value, or of the tail
+    // that is the deepest optional, since the others lift to it.
     Type branch_type(const Expr* root) {
+        if (const auto own = scalar(root); own.kind != ScalarType::Deferred && own.kind != ScalarType::Error)
+            return lower_type(own);
         std::vector<const Expr*> work{root};
+        std::optional<ScalarType> found;
         while (!work.empty()) {
             const Expr* expr = unparen(work.back());
             work.pop_back();
@@ -368,9 +394,11 @@ private:
             } else if (const auto* branch = as<IfExpr>(expr)) {
                 if (branch->else_branch) work.push_back(branch->else_branch);
                 work.push_back(branch->then_block);
-            } else if (const auto type = lower_type(scalar(expr)); has_value(type)) return type;
+            } else if (const auto type = scalar(expr); has_value(lower_type(type))) {
+                if (!found || type.optional_depth > found->optional_depth) found = type;
+            }
         }
-        return Type::Unit;
+        return found ? lower_type(*found) : Type::Unit;
     }
 
     // ------------------------------------------------------------ items
@@ -529,9 +557,11 @@ private:
                 const u32 head = block(), body = block(), exit = block();
                 end(Term::Br, {}, head);
                 current_ = head;
-                const Reg cond = any(loop.cond.expr);
+                Reg tested;
+                const Reg cond = test(loop.cond, tested);
                 end(Term::CondBr, cond, body, exit);
                 current_ = body;
+                bind(loop.cond, tested);
                 loops_.push_back({head, exit});
                 (void)branch(loop.body, false);
                 loops_.pop_back();
@@ -645,6 +675,7 @@ private:
             if (const auto* call = as<CallExpr>(expr); call && mutating_call(*call)) return true;
             if (const auto* paren = as<ParenExpr>(expr)) work.push_back(paren->inner);
             else if (const auto* unary = as<UnaryExpr>(expr)) work.push_back(unary->operand);
+            else if (const auto* unwrap = as<UnwrapExpr>(expr)) work.push_back(unwrap->operand);
             else if (const auto* binary = as<BinaryExpr>(expr)) {
                 work.push_back(binary->lhs);
                 work.push_back(binary->rhs);
@@ -665,38 +696,73 @@ private:
     }
 
     // Blocks and `if` chains. Recursion follows syntactic nesting; `else if`
-    // chains are iterative.
-    Reg branch(const Expr* root, bool used) {
+    // chains are iterative. A nested branch whose value is the result takes
+    // the result's type, as when an `if` without `else` is a block's tail.
+    Reg branch(const Expr* root, bool used, std::optional<Type> want = {}) {
         root = unparen(root);
         if (const auto* block = as<BlockExpr>(root)) {
             const usize count = block->stmts.size();
             for (usize i = 0; i < count; ++i) {
                 const auto* tail = used && i + 1 == count ? as<ExprStmt>(block->stmts[i]) : nullptr;
-                if (tail) return any(tail->expr);
+                if (tail) return control(tail->expr) ? branch(tail->expr, true, want ? want : branch_type(root)) : value(tail->expr);
                 statement(*block->stmts[i]);
             }
             return {};
         }
-        const auto type = used ? branch_type(root) : Type::Unit;
+        const auto type = !used ? Type::Unit : want ? *want : branch_type(root);
         const Reg result = has_value(type) ? reg(type) : Reg{};
         const u32 join = block();
         for (const auto* next = cast<IfExpr>(root); next;) {
-            const Reg cond = any(next->cond.expr);
+            Reg tested;
+            const Reg cond = test(next->cond, tested);
             const u32 then = block(), other = block();
             end(Term::CondBr, cond, then, other);
             current_ = then;
-            copy(result, branch(next->then_block, used));
+            bind(next->cond, tested);
+            copy(result, branch(next->then_block, used, type));
             end(Term::Br, {}, join);
             current_ = other;
             const Expr* rest = next->else_branch;
             next = rest ? as<IfExpr>(rest) : nullptr;
             if (!next) {
-                if (rest) copy(result, branch(rest, used));
+                if (rest) copy(result, branch(rest, used, type));
+                // Without `else`, a used `if` is `none` when no condition holds (3.24).
+                else if (result.valid() && is_optional(type)) emit({.op = Op::None, .dst = result});
                 end(Term::Br, {}, join);
             }
         }
         current_ = join;
         return result;
+    }
+
+    // A condition's Bool: for `let`, whether the optional it tests, kept in
+    // tested, holds a value. An annotation can make the value lift first, so
+    // `if let x: Int? = opt` binds opt itself even when it is `none`.
+    Reg test(const Cond& cond, Reg& tested) {
+        if (!cond.is_let) return any(cond.expr);
+        tested = any(cond.expr);
+        // A diverging value has already ended the block.
+        if (!tested.valid()) return {};
+        tested = fit(tested, optional(lower_type(binding_type(values_.at(cond.name.span.lo)))));
+        const Reg some = reg(Type::Bool);
+        emit({.op = Op::Field, .dst = some, .a = tested, .imm = 0});
+        return some;
+    }
+    // Binds a `let` condition's name to the value inside the optional it tested.
+    void bind(const Cond& cond, Reg tested) {
+        if (!cond.is_let) return;
+        const auto id = values_.at(cond.name.span.lo);
+        const Reg dst = reg(lower_type(binding_type(id)));
+        locals_[id.value] = dst;
+        if (!tested.valid()) return;
+        const Type value = program_.layouts[layout_index(fun_->regs[tested.id])].fields[1];
+        if (value == fun_->regs[dst.id]) {
+            emit({.op = Op::Field, .dst = dst, .a = tested, .imm = 1});
+            return;
+        }
+        const Reg inner = reg(value);
+        emit({.op = Op::Field, .dst = inner, .a = tested, .imm = 1});
+        copy(dst, inner);
     }
 
     // Operators, names, literals and calls, with an explicit stack so that
@@ -729,11 +795,8 @@ private:
                     break;
                 case ExprKind::String: {
                     tasks.pop_back();
-                    const auto bytes = names_.str(cast<StringExpr>(expr)->value);
-                    const auto [found, added] = strings_.try_emplace(std::string(bytes), program_.strings.size());
-                    if (added) program_.strings.emplace_back(bytes);
                     const Reg dst = reg(Type::Str);
-                    emit({.op = Op::Str, .dst = dst, .imm = found->second});
+                    emit({.op = Op::Str, .dst = dst, .imm = string(names_.str(cast<StringExpr>(expr)->value))});
                     values.push_back(dst);
                     break;
                 }
@@ -741,6 +804,13 @@ private:
                     tasks.pop_back();
                     values.push_back({});
                     break;
+                case ExprKind::None: {
+                    tasks.pop_back();
+                    const Reg dst = reg(lower_type(scalar(expr)));
+                    emit({.op = Op::None, .dst = dst});
+                    values.push_back(dst);
+                    break;
+                }
                 case ExprKind::Name: case ExprKind::GenericInst: {
                     tasks.pop_back();
                     if (const BindingId function = types_.function(expr); function.valid()) {
@@ -778,6 +848,17 @@ private:
                     if (stage == 0) tasks.push_back({cast<ParenExpr>(expr)->inner});
                     else tasks.pop_back();
                     break;
+                case ExprKind::Unwrap: {
+                    if (stage == 0) {
+                        tasks.push_back({cast<UnwrapExpr>(expr)->operand});
+                        break;
+                    }
+                    tasks.pop_back();
+                    const Reg operand = values.back();
+                    values.pop_back();
+                    values.push_back(operand.valid() ? unwrap(operand, expr->span) : Reg{});
+                    break;
+                }
                 case ExprKind::Unary: {
                     const auto& unary = *cast<UnaryExpr>(expr);
                     const auto* literal = as<IntExpr>(unparen(unary.operand));
@@ -805,6 +886,7 @@ private:
                 case ExprKind::Binary: {
                     const auto& binary = *cast<BinaryExpr>(expr);
                     if (binary.op == BinOp::And || binary.op == BinOp::Or) logic(task, stage, binary, tasks, values);
+                    else if (binary.op == BinOp::Coalesce) coalesce(task, stage, binary, tasks, values);
                     else if (stage == 0) tasks.push_back({binary.lhs});
                     else if (stage == 1) tasks.push_back({binary.rhs});
                     else {
@@ -989,6 +1071,8 @@ private:
                 work.push_back(paren->inner);
             } else if (const auto* unary = as<UnaryExpr>(expr)) {
                 work.push_back(unary->operand);
+            } else if (const auto* unwrap = as<UnwrapExpr>(expr)) {
+                work.push_back(unwrap->operand);
             } else if (const auto* binary = as<BinaryExpr>(expr)) {
                 work.push_back(binary->lhs);
                 work.push_back(binary->rhs);
@@ -1043,6 +1127,110 @@ private:
         values.push_back(result);
     }
 
+    // `opt!`: the value inside opt, or a panic at the expression when it is `none`.
+    Reg unwrap(Reg optional, Span span) {
+        const Reg some = reg(Type::Bool);
+        emit({.op = Op::Field, .dst = some, .a = optional, .imm = 0});
+        const u32 then = block(), other = block();
+        end(Term::CondBr, some, then, other);
+        current_ = other;
+        const auto& file = sources_.file(span.file);
+        const auto at = sources_.line_col(span.file, span.lo);
+        fun_->blocks[current_].message =
+            string(std::format("panic: unwrapped 'none' at {}:{}:{}\n", file.path, at.line, at.col));
+        end(Term::Panic);
+        current_ = then;
+        const Reg dst = reg(program_.layouts[layout_index(fun_->regs[optional.id])].fields[1]);
+        emit({.op = Op::Field, .dst = dst, .a = optional, .imm = 1});
+        return dst;
+    }
+    // The index of bytes in the program's string pool, each distinct value once.
+    u32 string(std::string_view bytes) {
+        const auto [found, added] = strings_.try_emplace(std::string(bytes), program_.strings.size());
+        if (added) program_.strings.emplace_back(bytes);
+        return static_cast<u32>(found->second);
+    }
+
+    // `opt ?? fallback`: the fallback runs only when opt is `none`.
+    template <typename Task>
+    void coalesce(Task& task, u32 stage, const BinaryExpr& binary, std::vector<Task>& tasks, std::vector<Reg>& values) {
+        if (stage == 0) {
+            tasks.push_back({binary.lhs});
+            return;
+        }
+        if (stage == 1) {
+            const Reg lhs = values.back();
+            values.pop_back();
+            // A diverging operand has already ended the block.
+            if (!lhs.valid()) {
+                tasks.pop_back();
+                values.push_back({});
+                return;
+            }
+            const auto& layout = program_.layouts[layout_index(fun_->regs[lhs.id])];
+            const Type value = layout.fields[1];
+            const Reg some = reg(Type::Bool), inner = reg(value);
+            emit({.op = Op::Field, .dst = some, .a = lhs, .imm = 0});
+            const u32 then = block(), other = block();
+            task.join = block();
+            task.result = reg(lower_type(scalar(&binary)));
+            end(Term::CondBr, some, then, other);
+            current_ = then;
+            emit({.op = Op::Field, .dst = inner, .a = lhs, .imm = 1});
+            copy(task.result, inner);
+            end(Term::Br, {}, task.join);
+            current_ = other;
+            tasks.push_back({binary.rhs});
+            return;
+        }
+        const Reg result = task.result;
+        const u32 join = task.join;
+        tasks.pop_back();
+        copy(result, values.back());
+        values.pop_back();
+        end(Term::Br, {}, join);
+        current_ = join;
+        values.push_back(result);
+    }
+
+    // `==` and `!=` with an optional compare both sides as the deeper
+    // optional: tags first, then values, which `none` keeps zero.
+    Reg optional_equality(const BinaryExpr& binary, Reg lhs, Reg rhs) {
+        const ScalarType left = scalar(binary.lhs), right = scalar(binary.rhs);
+        const Type type = lower_type(left.optional_depth >= right.optional_depth ? left : right);
+        Reg equal = equality(fit(lhs, type), fit(rhs, type), type);
+        if (binary.op == BinOp::Ne) {
+            const Reg flipped = reg(Type::Bool);
+            emit({.op = Op::Not, .dst = flipped, .a = equal});
+            equal = flipped;
+        }
+        return equal;
+    }
+    Reg equality(Reg lhs, Reg rhs, Type type) {
+        const Reg dst = reg(Type::Bool);
+        if (!is_optional(type)) {
+            emit({.op = Op::Eq, .dst = dst, .a = lhs, .b = rhs});
+            return dst;
+        }
+        const Type value = program_.layouts[layout_index(type)].fields[1];
+        const Reg a = reg(Type::Bool), b = reg(Type::Bool), x = reg(value), y = reg(value);
+        emit({.op = Op::Field, .dst = a, .a = lhs, .imm = 0});
+        emit({.op = Op::Field, .dst = b, .a = rhs, .imm = 0});
+        const Reg tags = reg(Type::Bool);
+        emit({.op = Op::Eq, .dst = tags, .a = a, .b = b});
+        emit({.op = Op::Field, .dst = x, .a = lhs, .imm = 1});
+        emit({.op = Op::Field, .dst = y, .a = rhs, .imm = 1});
+        emit({.op = Op::And, .dst = dst, .a = tags, .b = equality(x, y, value)});
+        return dst;
+    }
+    // A value lifted into the optional type `to`, if it is not of that type already.
+    Reg fit(Reg value, Type to) {
+        std::vector<Inst> out;
+        const Reg lifted = lift(*fun_, out, value, to);
+        for (auto& inst : out) emit(std::move(inst));
+        return lifted;
+    }
+
     Reg arithmetic(const BinaryExpr& binary, Reg lhs, Reg rhs) {
         const Type type = lower_type(scalar(&binary));
         if (!lhs.valid() || !rhs.valid()) {
@@ -1051,6 +1239,9 @@ private:
                 return constant(Type::Bool, binary.op == BinOp::Eq);
             return {};
         }
+        if ((binary.op == BinOp::Eq || binary.op == BinOp::Ne) &&
+            (scalar(binary.lhs).optional_depth || scalar(binary.rhs).optional_depth))
+            return optional_equality(binary, lhs, rhs);
         const Reg dst = reg(type);
         emit({.op = binary_op(binary.op), .dst = dst, .a = lhs, .b = rhs});
         return dst;
@@ -1060,6 +1251,7 @@ private:
         const Type type = lower_type(scalar(&call));
         if (const CheckedConversion* conversion = types_.conversion(&call)) {
             if (!args.front().valid()) return {};
+            if (is_optional(type)) return checked_conversion(args.front(), type);
             if (type == lower_type(concrete(conversion->source))) return args.front();
             const Reg dst = reg(type);
             emit({.op = conversion->kind == ConversionKind::Truncating ? Op::Truncate : Op::Widen, .dst = dst,
@@ -1138,6 +1330,35 @@ private:
         return dst;
     }
 
+    // `T.checked(x)`: x as a T when it fits, else `none`. It fits when
+    // truncating keeps its bits and, between types of different signedness,
+    // when it is not negative as the signed one.
+    Reg checked_conversion(Reg source, Type type) {
+        const Type from = fun_->regs[source.id], to = program_.layouts[layout_index(type)].fields[1];
+        const Reg narrowed = reg(to), fits = reg(Type::Bool);
+        emit({.op = Op::Truncate, .dst = narrowed, .a = source});
+        emit({.op = Op::Eq, .dst = fits, .a = narrowed, .b = source});
+        Reg ok = fits;
+        if (is_signed(from) != is_signed(to)) {
+            const Reg signed_value = is_signed(from) ? source : narrowed;
+            const Reg sign = reg(Type::Bool);
+            emit({.op = Op::Ge, .dst = sign, .a = signed_value, .b = constant(fun_->regs[signed_value.id], 0)});
+            ok = reg(Type::Bool);
+            emit({.op = Op::And, .dst = ok, .a = fits, .b = sign});
+        }
+        const Reg result = reg(type);
+        const u32 then = block(), other = block(), join = block();
+        end(Term::CondBr, ok, then, other);
+        current_ = then;
+        copy(result, narrowed);
+        end(Term::Br, {}, join);
+        current_ = other;
+        emit({.op = Op::None, .dst = result});
+        end(Term::Br, {}, join);
+        current_ = join;
+        return result;
+    }
+
     // The method that runs for interface method `requirement` on a struct
     // `receiver`: the struct's implementation, or the interface's default.
     // The gate has checked that there is one.
@@ -1202,9 +1423,67 @@ private:
         return funs_.back().function;
     }
 
+    // ------------------------------------------------------------ lifting
+
+    // Wraps value in `some` until it has type `to`, appending the
+    // instructions to out.
+    Reg lift(Function& fun, std::vector<Inst>& out, Reg value, Type to) const {
+        if (!value.valid() || fun.regs[value.id] == to) return value;
+        PHS_ASSERT(is_optional(to));
+        const Type inner = program_.layouts[layout_index(to)].fields[1];
+        const Reg wrapped = lift(fun, out, value, inner);
+        const auto added = [&](Type type) {
+            fun.regs.push_back(type);
+            return Reg{static_cast<u32>(fun.regs.size() - 1)};
+        };
+        const Reg some = added(Type::Bool), dst = added(to);
+        out.push_back({.op = Op::Const, .dst = some, .imm = 1});
+        out.push_back({.op = Op::Make, .dst = dst, .args = {some, wrapped}});
+        return dst;
+    }
+    // Lifts every operand stored where its optional is expected: copies,
+    // arguments, fields and results.
+    void lift(Function& fun) const {
+        for (auto& block : fun.blocks) {
+            std::vector<Inst> out;
+            out.reserve(block.insts.size());
+            for (auto& inst : block.insts) {
+                switch (inst.op) {
+                    case Op::Copy: inst.a = lift(fun, out, inst.a, fun.regs[inst.dst.id]); break;
+                    case Op::Make: {
+                        const auto& layout = program_.layouts[layout_index(fun.regs[inst.dst.id])];
+                        for (usize i = 0; i < inst.args.size(); ++i)
+                            inst.args[i] = lift(fun, out, inst.args[i], layout.fields[i]);
+                        break;
+                    }
+                    case Op::With:
+                        inst.b = lift(fun, out, inst.b, program_.layouts[layout_index(fun.regs[inst.a.id])].fields[inst.imm]);
+                        break;
+                    case Op::Call: {
+                        const auto& callee = program_.functions[inst.callee];
+                        for (usize i = 0; i < inst.args.size(); ++i)
+                            inst.args[i] = lift(fun, out, inst.args[i], callee.regs[i]);
+                        break;
+                    }
+                    case Op::CallIndirect: {
+                        const auto& layout = program_.layouts[layout_index(fun.regs[inst.a.id])];
+                        for (usize i = 0; i < inst.args.size(); ++i)
+                            inst.args[i] = lift(fun, out, inst.args[i], layout.params[i]);
+                        break;
+                    }
+                    default: break;
+                }
+                out.push_back(std::move(inst));
+            }
+            if (block.term == Term::Ret) block.value = lift(fun, out, block.value, fun.result);
+            block.insts = std::move(out);
+        }
+    }
+
     const Resolution& resolution_;
     ScalarTypes& types_;
     const Interner& names_;
+    const SourceManager& sources_;
     std::unordered_map<const Item*, BindingId> items_;
     std::unordered_map<u32, BindingId> values_;  // locals and parameters by declaration offset
     std::unordered_map<const FunItem*, u32> functions_;  // non-generic functions
@@ -1217,6 +1496,7 @@ private:
     std::unordered_map<usize, u32> layouts_;  // struct type descriptor to its index in program_.layouts
     std::unordered_map<usize, u32> tuples_;   // tuple type descriptor to its index in program_.layouts
     std::unordered_map<usize, u32> function_types_;  // function type descriptor to its index in program_.layouts
+    std::unordered_map<u32, u32> optionals_;  // an optional's value type to its index in program_.layouts
     std::unordered_map<u32, u32> fields_;     // field declaration offset to its declaration index
     std::unordered_map<const FunItem*, const TypeDeclItem*> owners_;  // a method's struct
     Reg self_;  // the current method's receiver
@@ -1232,8 +1512,9 @@ private:
 
 }  // namespace
 
-Program lower(const File& file, const Resolution& resolution, ScalarTypes& types, const Interner& names) {
-    return Lowerer(resolution, types, names).run(file);
+Program lower(const File& file, const Resolution& resolution, ScalarTypes& types, const Interner& names,
+              const SourceManager& sources) {
+    return Lowerer(resolution, types, names, sources).run(file);
 }
 
 }  // namespace phs::mir

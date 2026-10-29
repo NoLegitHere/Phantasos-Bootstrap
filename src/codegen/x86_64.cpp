@@ -665,6 +665,17 @@ private:
         }
     }
 
+    // Clears bytes from [rbp + at] through rax.
+    void zero(i32 at, u32 bytes) {
+        as_.mov_imm(RAX, 0);
+        for (u32 done = 0; done < bytes;) {
+            const u32 left = bytes - done;
+            const u32 chunk = left >= 8 ? 8 : left >= 4 ? 4 : left >= 2 ? 2 : 1;
+            as_.store_bytes(RBP, at + static_cast<i32>(done), RAX, chunk);
+            done += chunk;
+        }
+    }
+
     // Scalars sit in their slots as normalized 64-bit values; inside an
     // aggregate they take their natural size.
     static bool scalar(Type type) { return type != Type::Str && !mir::is_aggregate(type); }
@@ -714,6 +725,7 @@ private:
         if (inst.op == Op::Make) return make(inst);
         if (inst.op == Op::Field) return field(inst);
         if (inst.op == Op::With) return with(inst);
+        if (inst.op == Op::None) return zero(slot(inst.dst), size(fun_->regs[inst.dst.id]));
         const Type type = fun_->regs[inst.dst.id];
         if (mir::is_aggregate(type)) {
             PHS_ASSERT(inst.op == Op::Copy);
@@ -767,7 +779,7 @@ private:
                 break;
             }
             case Op::Call: case Op::Str: case Op::Print: case Op::Make: case Op::Field: case Op::With:
-            case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: break;
+            case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None: break;
         }
         as_.store(slot(inst.dst), RAX);
     }
@@ -986,6 +998,15 @@ private:
                 as_.epilogue();
                 break;
             case Term::Unreachable: as_.ud2(); break;
+            case Term::Panic: {
+                const auto& message = program_.strings[block.message];
+                as_.lea(RSI, object_.literal(message));
+                as_.mov32_imm(RDX, static_cast<u32>(message.size()));
+                as_.mov_edi(static_cast<u32>(Trap::Panic));
+                as_.call(trap_);
+                as_.ud2();
+                break;
+            }
         }
     }
 
@@ -1057,8 +1078,10 @@ public:
         exit();
         end(start);
 
-        begin(trap, "edi holds the trap code");
+        begin(trap, "edi holds the trap code; a panic's message is in rsi and rdx");
         const auto not_divide = as_.label(), report = as_.label();
+        as_.cmp32_imm8(RDI, static_cast<u8>(Trap::Panic));
+        as_.jcc(E, report);
         as_.lea(RSI, overflow);
         as_.mov32_imm(RDX, static_cast<u32>(kOverflow.size()));
         as_.cmp32_imm8(RDI, static_cast<u8>(Trap::DivideByZero));

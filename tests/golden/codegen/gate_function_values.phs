@@ -29,7 +29,7 @@ fun accepted(f: fun(Int) -> Int): fun() -> Never {
 
 struct Holder(f: fun(Holder) -> Int)
 
-fun optional(f: fun(Int) -> Int?) {}
+fun optional(f: fun(Int) -> Unit?) {}
 
 fun compared(): Bool = one == one
 

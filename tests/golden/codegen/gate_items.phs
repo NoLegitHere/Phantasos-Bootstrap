@@ -28,7 +28,7 @@ type Count = Int
 
 fun float(x: Float64): Float64 = x * 2.0
 
-fun optional(x: Int?): Int = x ?? 0
+fun optional(x: Unit?): Int = 0
 
 fun throwing() throws {}
 

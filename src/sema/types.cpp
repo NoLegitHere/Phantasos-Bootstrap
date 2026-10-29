@@ -361,7 +361,11 @@ public:
                 entities_, large_scope_names_, ancestry_cache_, class_intervals_, visit_marks_, ancestry_work_, ancestry_visited_, inherited_members_, walk_,
                 requirements_, expectations_, closure_returns_);
         ScalarTypes result;
-        for (const auto& [expr, index] : expressions_) result.expressions_.emplace(expr, nodes_[index].value.type);
+        for (const auto& [expr, index] : expressions_) {
+            const auto branch = branch_results_.find(expr);
+            const Type type = nodes_[index].value.type;
+            result.expressions_.emplace(expr, !known(type) && branch != branch_results_.end() ? branch->second : type);
+        }
         release(expressions_);
         for (usize i = 0; i < resolution_.bindings().size(); ++i) result.bindings_.push_back(nodes_[i].value.type);
         for (auto& [id, sig] : signatures_) sig.result = nodes_[function_nodes_.at(id)].value.type;
@@ -3352,6 +3356,9 @@ private:
                 result = {Type::Error};
             }
         }
+        // A used branch takes the type its context expects, which is what an
+        // `if` without `else` is `none` of.
+        if (known(result.type)) branch_results_[root] = result.type;
         return result;
     }
     static bool none_literal(const Expr* expr) {
@@ -4814,6 +4821,7 @@ private:
     std::unordered_map<const Expr*, std::vector<BindingId>> function_names_;  // candidates of names used as function values
     std::unordered_map<const Expr*, std::vector<Type>> explicit_arguments_;   // type arguments written on overloaded names
     std::unordered_map<const Expr*, BindingId> functions_;
+    std::unordered_map<const Expr*, Type> branch_results_;  // the expected types of used branches
     std::unordered_map<const Expr*, std::vector<Type>> function_arguments_;  // of generic function values
     NodeMap<const Expr*, bool> generic_bases_;  // names given type arguments; a set
     std::unordered_map<usize, Type> function_errors_;  // the error type of each throwing function

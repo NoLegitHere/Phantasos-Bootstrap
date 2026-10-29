@@ -1559,6 +1559,7 @@ value of its own yet, so `a..<b` or `a..b` anywhere but as the subject of a
 `for` loop is `E0406`. While a `for` loop runs over a place, such as `a`, `p.items` or `g[0]`,
 its body has exclusive access to it (3.32): assigning to it or to a place
 that overlaps it, calling `append`, `removeLast` or a `mut fun` on such a
-place, passing one `inout`, or moving the array is `E0506`, with a note at
+place, passing one `inout` (also as the default of an omitted parameter),
+or moving the array is `E0506`, with a note at
 the loop. Reading it and changing other places are fine, and so is `for x in
 a.clone() { a.append(x) }`, which runs over a copy.

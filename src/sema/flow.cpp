@@ -656,14 +656,62 @@ private:
             return;
         }
     }
-    // The `inout` arguments and the `mut fun` receiver of a call inside a
-    // `for` loop's body.
+    // The place that each parameter's argument names, if any. An omitted
+    // parameter's default runs in the callee, where an earlier parameter
+    // stands for the place its argument names.
+    struct ArgumentPlaces {
+        std::vector<std::optional<Path>> paths;
+        std::vector<bool> supplied;
+    };
+    ArgumentPlaces argument_places(const CallExpr& call, const CheckedCall& checked, const FunItem& fun) const {
+        ArgumentPlaces result{std::vector<std::optional<Path>>(fun.sig.params.size()),
+                              std::vector<bool>(fun.sig.params.size(), false)};
+        auto& paths = result.paths;
+        for (usize i = 0; i < checked.parameters.size() && i < call.args.size(); ++i) {
+            const usize index = checked.parameters[i];
+            if (index >= fun.sig.params.size()) continue;
+            result.supplied[index] = true;
+            paths[index] = path(call.args[i].value);
+        }
+        for (usize index = 0; index < fun.sig.params.size(); ++index) {
+            const auto& param = fun.sig.params[index];
+            if (result.supplied[index] || !param.default_value) continue;
+            auto found = path(param.default_value);
+            if (!found) continue;
+            // `self` in a default is the callee's receiver, not the caller's.
+            if (found->root == kSelfRoot) continue;
+            const auto& binding = resolution_.binding(BindingId{static_cast<u32>((found->root >> 1) - 1)});
+            const auto earlier = std::ranges::find_if(fun.sig.params.begin(), fun.sig.params.begin() + index,
+                                                      [&](const Param& other) {
+                                                          return binding.kind == BindingKind::Parameter &&
+                                                                 other.name.span.lo == binding.name.span.lo;
+                                                      });
+            if (earlier != fun.sig.params.begin() + index) {
+                const auto& base = paths[static_cast<usize>(earlier - fun.sig.params.begin())];
+                if (!base) continue;
+                Path joined = *base;
+                for (const u64 step : found->steps) joined.steps.push_back(step);
+                found = std::move(joined);
+            }
+            paths[index] = std::move(found);
+        }
+        return result;
+    }
+
+    // The `inout` arguments, also omitted ones with a default, and the `mut
+    // fun` receiver of a call inside a `for` loop's body.
     void loop_arguments(const CallExpr& call, const CheckedCall& checked, const FunItem& fun) {
         if (iterated_.empty()) return;
+        const auto places = argument_places(call, checked, fun);
         for (usize i = 0; i < checked.parameters.size() && i < call.args.size(); ++i) {
             const usize index = checked.parameters[i];
             if (index < fun.sig.params.size() && fun.sig.params[index].conv == Convention::Inout)
-                changes(path(call.args[i].value), call.args[i].value->span, text(call.args[i].value->span), "change");
+                changes(places.paths[index], call.args[i].value->span, text(call.args[i].value->span), "change");
+        }
+        for (usize index = 0; index < fun.sig.params.size(); ++index) {
+            const auto& param = fun.sig.params[index];
+            if (!places.supplied[index] && param.conv == Convention::Inout && places.paths[index])
+                changes(places.paths[index], call.callee->span, text(param.default_value->span), "change");
         }
         if (checked.kind != CallKind::Method || !has_modifier(fun.mods, Modifier::Mut) || has_modifier(fun.mods, Modifier::Static))
             return;
@@ -712,41 +760,17 @@ private:
             return param.conv == Convention::Inout ? std::format("'inout' parameter '{}'", names_.str(param.name.sym))
                                                    : std::string{};
         };
-        std::vector<std::optional<Path>> paths(fun.sig.params.size());
-        std::vector<bool> supplied(fun.sig.params.size(), false);
+        const auto places = argument_places(call, checked, fun);
         for (usize i = 0; i < checked.parameters.size() && i < call.args.size(); ++i) {
             const usize index = checked.parameters[i];
-            if (index >= fun.sig.params.size()) continue;
-            supplied[index] = true;
-            paths[index] = path(call.args[i].value);
-            if (!paths[index]) continue;
-            accesses.push_back({call.args[i].value->span, *paths[index], who(fun.sig.params[index]),
+            if (index >= fun.sig.params.size() || !places.paths[index]) continue;
+            accesses.push_back({call.args[i].value->span, *places.paths[index], who(fun.sig.params[index]),
                                 std::string(text(call.args[i].value->span)), false});
         }
-        // An omitted parameter's default runs in the callee, where an earlier
-        // parameter stands for the place its argument names.
         for (usize index = 0; index < fun.sig.params.size(); ++index) {
             const auto& param = fun.sig.params[index];
-            if (supplied[index] || !param.default_value) continue;
-            auto found = path(param.default_value);
-            if (!found) continue;
-            // `self` in a default is the callee's receiver, not the caller's.
-            if (found->root == kSelfRoot) continue;
-            const auto& binding = resolution_.binding(BindingId{static_cast<u32>((found->root >> 1) - 1)});
-            const auto earlier = std::ranges::find_if(fun.sig.params.begin(), fun.sig.params.begin() + index,
-                                                      [&](const Param& other) {
-                                                          return binding.kind == BindingKind::Parameter &&
-                                                                 other.name.span.lo == binding.name.span.lo;
-                                                      });
-            if (earlier != fun.sig.params.begin() + index) {
-                const auto& base = paths[static_cast<usize>(earlier - fun.sig.params.begin())];
-                if (!base) continue;
-                Path joined = *base;
-                for (const u64 step : found->steps) joined.steps.push_back(step);
-                found = std::move(joined);
-            }
-            paths[index] = found;
-            accesses.push_back({call.callee->span, std::move(*found), who(param), std::string(text(param.default_value->span)),
+            if (places.supplied[index] || !places.paths[index]) continue;
+            accesses.push_back({call.callee->span, *places.paths[index], who(param), std::string(text(param.default_value->span)),
                                 false, names_.str(param.name.sym)});
         }
         for (usize b = 1; b < accesses.size(); ++b)

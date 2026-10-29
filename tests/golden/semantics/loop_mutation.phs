@@ -29,6 +29,9 @@ struct Walker(var xs: [Int]) {
 fun take(xs: own [Int]) {}
 fun reset(xs: inout [Int]) { xs = [] }
 
+var pool = [1, 2]
+fun touch(xs: inout [Int] = pool) { xs[1] = 9 }
+
 fun changes() {
     var a = [1, 2]
     for x in a { a.append(x) }
@@ -42,6 +45,7 @@ fun changes() {
     var g = [[1]]
     for x in g[0] { g[0].append(2) }
     for x in g[0] { g[1] = [] }
+    for x in pool { touch() }
 }
 
 fun allowed() {
@@ -53,4 +57,5 @@ fun allowed() {
     for i in 0..<a.count { a.append(i) }
     var h = Holder([1], 0)
     for x in h.xs { h.count += x }
+    for x in a { touch() }
 }

@@ -669,6 +669,13 @@ void wide_matches_and_long_chains() {
     Frontend too_complex;
     too_complex.check(complex, {DiagCode::MatchTooComplex}, false);
 
+    // Matching a present value through many optional layers is too deep.
+    std::string optional = "fun f(x: Bool";
+    for (int i = 0; i < 1000; ++i) optional += "? ";
+    optional += "): Int {\n    return match x { true -> 1, _ -> 0 }\n}\n";
+    Frontend deep;
+    deep.check(optional, {DiagCode::MatchTooComplex}, false);
+
     // Only the two structs on the cycle at the end are reported.
     std::string chain;
     for (int i = 0; i < kWide - 1; ++i) chain += "struct S" + std::to_string(i) + "(a: S" + std::to_string(i + 1) + ", b: Int)\n";

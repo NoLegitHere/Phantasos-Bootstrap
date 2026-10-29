@@ -100,6 +100,7 @@ private:
     // Matches with more columns to walk, or more rows to copy, are rejected.
     static constexpr u32 kDepth = 512;
     static constexpr usize kWork = 2'000'000;
+    static constexpr u32 kInhabited = 64;
 
     u32 add(Space space) {
         spaces_.push_back(std::move(space));
@@ -132,12 +133,18 @@ private:
         return 0;
     }
     u32 literal(const Expr& expr, Type type) {
-        if (type.optional_depth) {
-            // Any literal but `none` matches a present value.
-            if (expr.kind == ExprKind::None) return add({Space::Case, kNone});
-            --type.optional_depth;
-            return add({Space::Case, kSome, {literal(expr, type)}});
+        if (!type.optional_depth) return value(expr);
+        if (expr.kind == ExprKind::None) return add({Space::Case, kNone});
+        if (type.optional_depth > kDepth) {
+            complex_ = true;
+            return 0;
         }
+        // Any literal but `none` matches a present value.
+        u32 result = value(expr);
+        for (u32 i = 0; i < type.optional_depth; ++i) result = add({Space::Case, kSome, {result}});
+        return result;
+    }
+    u32 value(const Expr& expr) {
         if (const auto* value = as<BoolExpr>(&expr)) return add({Space::Case, value->value ? kTrue : kFalse});
         std::string key;
         const auto* negated = as<UnaryExpr>(&expr);
@@ -158,16 +165,63 @@ private:
     // The cases of an enum, `false` and `true`, or `none` and the rest of an
     // optional; empty for types whose values cannot be listed.
     struct Constructors { bool finite = false; std::vector<u32> ctors; };
+    // Cases with a payload no value has, such as an empty enum, need no arm.
     Constructors constructors(Type type) {
-        if (type.optional_depth) return {true, {kNone, kSome}};
+        if (type.optional_depth) {
+            if (inhabited(type.element())) return {true, {kNone, kSome}};
+            return {true, {kNone}};
+        }
         if (type.kind == Type::Bool) return {true, {kFalse, kTrue}};
-        if (type.kind != Type::Nominal) return {};
-        const auto* descriptor = types_.descriptor(type);
-        const auto& binding = resolution_.binding(descriptor->declaration);
-        if (!binding.item || binding.item->kind != ItemKind::Enum || !binding.members.valid()) return {};
+        const BindingId id = enum_of(type);
+        if (!id.valid()) return {};
         Constructors result{true, {}};
-        for (const BindingId id : resolution_.scopes()[binding.members.value].bindings)
-            if (resolution_.binding(id).kind == BindingKind::EnumCase) result.ctors.push_back(static_cast<u32>(id.value));
+        for (const BindingId member : resolution_.scopes()[resolution_.binding(id).members.value].bindings)
+            if (resolution_.binding(member).kind == BindingKind::EnumCase && inhabited(static_cast<u32>(member.value), type))
+                result.ctors.push_back(static_cast<u32>(member.value));
+        return result;
+    }
+    BindingId enum_of(Type type) const {
+        if (type.optional_depth || type.kind != Type::Nominal) return {};
+        const BindingId id = types_.descriptor(type)->declaration;
+        const auto& binding = resolution_.binding(id);
+        return binding.item && binding.item->kind == ItemKind::Enum && binding.members.valid() ? id : BindingId{};
+    }
+    bool inhabited(u32 ctor, Type type) {
+        return std::ranges::all_of(fields(ctor, type), [&](Type field) { return inhabited(field); });
+    }
+    // Whether some value has `type`: not `Never`, an enum whose cases all
+    // have such payloads, or a struct or tuple holding one. Generic
+    // instances, deep types and types that hold themselves count as
+    // inhabited, which can only ask for an arm too many.
+    bool inhabited(Type type, u32 depth = 0) {
+        if (type.optional_depth) return true;
+        if (type.kind == Type::Never) return false;
+        if (type.kind != Type::Nominal && type.kind != Type::Tuple) return true;
+        if (depth > kInhabited) return true;
+        if (const auto known = inhabited_.find(type.detail); known != inhabited_.end()) return known->second;
+        inhabited_[type.detail] = true;  // while it is checked
+        const auto* descriptor = types_.descriptor(type);
+        const auto all = [&](const std::vector<Type>& parts) {
+            return std::ranges::all_of(parts, [&](Type part) { return inhabited(part, depth + 1); });
+        };
+        bool result = true;
+        if (type.kind == Type::Tuple) result = all(descriptor->parameters);
+        else if (descriptor->arguments.empty()) {
+            const auto& binding = resolution_.binding(descriptor->declaration);
+            const bool is_enum = binding.item && binding.item->kind == ItemKind::Enum;
+            const bool is_struct = binding.item && binding.item->kind == ItemKind::Struct;
+            if ((is_enum || is_struct) && binding.members.valid()) {
+                result = !is_enum;
+                for (const BindingId member : resolution_.scopes()[binding.members.value].bindings) {
+                    const auto& field = resolution_.binding(member);
+                    if (is_enum && field.kind == BindingKind::EnumCase)
+                        result = result || all(fields(static_cast<u32>(member.value), type));
+                    else if (is_struct && field.kind == BindingKind::Field && !(field.item && has_modifier(field.item->mods, Modifier::Static)))
+                        result = result && inhabited(types_.binding(member), depth + 1);
+                }
+            }
+        }
+        inhabited_[type.detail] = result;
         return result;
     }
     // The types of a case's parts, in a value of `type`.
@@ -296,11 +350,22 @@ private:
         // Name a missing case when some are matched, else any value.
         const auto absent = std::ranges::find_if(listed.ctors, [&](u32 c) { return !has(c); });
         if (listed.finite && !starts.empty() && absent != listed.ctors.end()) {
-            const usize arity = fields(*absent, type).size();
-            found->insert(found->end(), arity, "_");
-            rebuild(*found, *absent, arity);
+            if (*absent == kSome) found->push_back(any(type.element()));
+            else {
+                const usize arity = fields(*absent, type).size();
+                found->insert(found->end(), arity, "_");
+                rebuild(*found, *absent, arity);
+            }
         } else found->push_back("_");
         return found;
+    }
+    // A present value of an optional's type, by its first case if it has some.
+    std::string any(Type type) {
+        const auto listed = constructors(type);
+        if (!listed.finite || listed.ctors.empty() || listed.ctors.front() == kSome) return "_";
+        Witness witness(fields(listed.ctors.front(), type).size(), "_");
+        rebuild(witness, listed.ctors.front(), witness.size());
+        return witness.back();
     }
 
     const Resolution& resolution_;
@@ -311,6 +376,7 @@ private:
     std::unordered_map<std::string, u32> literals_;
     bool supported_ = true;
     std::vector<bool> reached_;  // by arm
+    std::unordered_map<usize, bool> inhabited_;  // by type
     bool complex_ = false;
     usize work_ = 0;
 };

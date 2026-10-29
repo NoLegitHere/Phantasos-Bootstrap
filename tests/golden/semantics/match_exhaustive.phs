@@ -32,12 +32,19 @@ enum Tok {
 
 enum Empty {}
 
+// Cases whose payload no value has need no arm.
+enum Partial {
+    never(Empty)
+    pair(Int, (Bool, Empty))
+    some(Int)
+}
+
 enum Opt<T> {
     some(T)
     nothing
 }
 
-fun covered(t: Tok, flag: Bool?, e: Empty, o: Opt<Int>): Int {
+fun covered(t: Tok, flag: Bool?, e: Empty, o: Opt<Int>, z: Empty?): Int {
     let a = match t {
         .num(n) -> n
         .pair(a, true) | .pair(a, false) -> a
@@ -51,9 +58,11 @@ fun covered(t: Tok, flag: Bool?, e: Empty, o: Opt<Int>): Int {
         false -> 2
     }
     let c: Int = match e {}
+    let p = match Partial.some(1) { .some(n) -> n }
+    let q = match z { none -> 0 }
     // Generic enums are not checked yet.
     let d = match o { .some(n) -> n }
-    return a + b + c + d
+    return a + b + c + d + p + q
 }
 
 fun missingCase(t: Tok): Int {
@@ -116,4 +125,8 @@ fun unreachable(t: Tok, x: Int): Int {
         _ -> 3
     }
     return first + second + third
+}
+
+fun missingPresent(x: Partial?): Int {
+    return match x { none -> 0 }
 }

@@ -42,8 +42,10 @@ public:
     }
 
 private:
-    // No type written in source nests one declaration this deep.
+    // No type written in source nests one declaration this deep, and no
+    // program holds this many types inline.
     static constexpr usize kNesting = 256;
+    static constexpr usize kTypes = 1'000'000;
     bool value_type(BindingId id) const {
         const auto& binding = resolution_.binding(id);
         return binding.kind == BindingKind::Type && binding.item && binding.members.valid() &&
@@ -123,7 +125,11 @@ private:
                     if (nodes_[known->second].active) nodes_[id].low = std::min(nodes_[id].low, nodes_[known->second].index);
                     continue;
                 }
-                if (const BindingId held = declaration(part.type); nesting_[held.value] >= kNesting) {
+                // A declaration found to grow without end is not expanded
+                // again, so that its other branches do not multiply.
+                const BindingId held = declaration(part.type);
+                if (reported_.contains(held.value)) continue;
+                if (nesting_[held.value] >= kNesting || nodes_.size() >= kTypes) {
                     report(held, part.via);
                     continue;
                 }

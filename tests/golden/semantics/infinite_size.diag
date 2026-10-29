@@ -16,9 +16,12 @@ infinite_size.phs:25:8: error[E0442]: 'Looped' holds itself inline through field
 infinite_size.phs:26:8: error[E0442]: 'Grow' holds itself inline through field 'inner', so it has no finite size; hold it in an array or a class instead
    26 | struct Grow<T>(inner: Grow<Box<T>>)
       |        ^^^^
-infinite_size.phs:28:8: error[E0442]: 'Body' holds itself inline through field 'me', so it has no finite size; hold it in an array or a class instead
-   28 | struct Body {
+infinite_size.phs:28:8: error[E0442]: 'Branching' holds itself inline through field 'a', so it has no finite size; hold it in an array or a class instead
+   28 | struct Branching<T>(a: Branching<[T]>, b: Branching<Box<T>>, c: Branching<(T, T)>)
+      |        ^^^^^^^^^
+infinite_size.phs:30:8: error[E0442]: 'Body' holds itself inline through field 'me', so it has no finite size; hold it in an array or a class instead
+   30 | struct Body {
       |        ^^^^
-infinite_size.phs:32:6: error[E0442]: 'Expr' holds itself inline through case '.add', so it has no finite size; hold it in an array or a class instead
-   32 | enum Expr {
+infinite_size.phs:34:6: error[E0442]: 'Expr' holds itself inline through case '.add', so it has no finite size; hold it in an array or a class instead
+   34 | enum Expr {
       |      ^^^^

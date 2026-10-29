@@ -1635,7 +1635,10 @@ and `.pair(_, false)` together cover `.pair`.
 - Integers, floats, characters and strings have too many values to list,
   so a `match` on them needs a `_` or binding arm.
 - An arm with a guard covers nothing, since its guard may be false.
-- An enum without cases is covered by a `match` without arms.
+- A case whose payload no value has, such as one holding an enum without
+  cases or `Never`, needs no arm, and neither does the present value of
+  an optional of such a type. So an enum without cases is covered by a
+  `match` without arms. Generic instances count as having values.
 
 An arm whose values are all matched by the arms before it never runs, and
 is warned about (`E0408`). Matches with patterns of generic enums are not

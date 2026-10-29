@@ -263,6 +263,13 @@ public:
                 sig.generic = !fun->sig.generics.empty();
                 signatures_.emplace(i, std::move(sig));
                 if (fun->sig.throws) function_errors_.emplace(i, fun->sig.throws_type ? annotation(fun->sig.throws_type) : error_type());
+            } else if (b.kind == BindingKind::EnumCase) {
+                // A case's payload fields are its parameters and its enum is
+                // the result (3.34).
+                ScalarSignature sig;
+                for (const auto& field : cast<EnumCaseItem>(b.item)->fields) sig.parameters.push_back(annotation(field.type));
+                sig.result = nominal(member_owner(BindingId{i}));
+                signatures_.emplace(i, std::move(sig));
             }
         }
         for (const Item* item : file.items) push(item);
@@ -371,7 +378,8 @@ public:
         }
         release(expressions_);
         for (usize i = 0; i < resolution_.bindings().size(); ++i) result.bindings_.push_back(nodes_[i].value.type);
-        for (auto& [id, sig] : signatures_) sig.result = nodes_[function_nodes_.at(id)].value.type;
+        for (auto& [id, sig] : signatures_)
+            if (const auto node = function_nodes_.find(id); node != function_nodes_.end()) sig.result = nodes_[node->second].value.type;
         release(nodes_);
         result.signatures_ = std::move(signatures_);
         result.calls_ = std::move(calls_);
@@ -1446,6 +1454,30 @@ private:
     BindingId member_owner(BindingId id) const {
         const auto it = member_owners_.find(resolution_.binding(id).scope.value);
         return it == member_owners_.end() ? BindingId{} : it->second;
+    }
+    // The enum a type names, plain or optional, when its cases can be typed;
+    // generic enums are not checked yet (3.34).
+    BindingId enum_of(Type type) const {
+        if (type.kind != Type::Nominal) return {};
+        const auto* descriptor = types_.descriptor(type);
+        const auto& binding = resolution_.binding(descriptor->declaration);
+        if (binding.kind != BindingKind::Type || binding.item->kind != ItemKind::Enum || !descriptor->arguments.empty()) return {};
+        return descriptor->declaration;
+    }
+    BindingId enum_case(BindingId owner, Symbol name) const {
+        for (const auto id : direct_members(owner, name, false))
+            if (resolution_.binding(id).kind == BindingKind::EnumCase) return id;
+        return {};
+    }
+    bool carries_payload(BindingId id) const { return cast<EnumCaseItem>(resolution_.binding(id).item)->has_fields; }
+    std::string case_name(BindingId id) const {
+        return std::format("{}.{}", names_.str(resolution_.binding(member_owner(id)).name.sym), names_.str(resolution_.binding(id).name.sym));
+    }
+    // `.name` or `.name(...)`: a case of the enum the context expects.
+    static const ImplicitMemberExpr* implicit_case(const Expr* expr) {
+        expr = unparen(expr);
+        if (const auto* call = as<CallExpr>(expr)) expr = unparen(call->callee);
+        return as<ImplicitMemberExpr>(expr);
     }
     bool interface_owner(BindingId id) const {
         const auto owner = member_owner(id);
@@ -3274,6 +3306,8 @@ private:
             if (actual.literal != Literal::None) materialize(index, default_type(actual));
             return {Type::Error};
         }
+        if (const auto* name = implicit_case(nodes_[index].expr); name && known(expected) && unavailable(actual))
+            return contextual_case(index, *name, expected, span);
         if (const auto selected = select_function(index, expected, span)) return *selected;
         if (!known(expected) || unavailable(actual)) return actual;
         if (actual.literal == Literal::Array && expected.kind == Type::Array) {
@@ -3659,6 +3693,8 @@ private:
         }
         if (equality && (lhs.type.optional_depth || rhs.type.optional_depth || none_literal(expr.lhs) || none_literal(expr.rhs)))
             return optional_equality(expr, lhs, rhs);
+        if (equality)
+            if (const auto compared = case_equality(expr, lhs, rhs)) return *compared;
         if (tuples || (equality && (lhs.type.optional_depth || rhs.type.optional_depth || lhs.type.kind >= Type::Nominal ||
                                     rhs.type.kind >= Type::Nominal || lhs.literal == Literal::Array || rhs.literal == Literal::Array))) return {};
         const bool ints = ranges || expr.op == BinOp::Rem || expr.op == BinOp::WrapAdd || expr.op == BinOp::WrapSub ||
@@ -3700,6 +3736,23 @@ private:
         return lhs;
     }
 
+    // `==` and `!=` with an enum: the other side, which may be `.case`, takes
+    // the enum's type. Only enums without payloads compare so far (3.34);
+    // others are deferred like composite equality.
+    std::optional<Value> case_equality(const BinaryExpr& expr, Value lhs, Value rhs) {
+        const auto plain = [&](Value v) { return known(v.type) && !v.type.optional_depth && enum_of(v.type).valid(); };
+        if (!plain(lhs) && !plain(rhs)) return std::nullopt;
+        const Type type = plain(lhs) ? lhs.type : rhs.type;
+        const Expr* other = plain(lhs) ? expr.rhs : expr.lhs;
+        const auto checked = require(other, type, other->span);
+        if (checked.type == Type::Error) return Value{Type::Error};
+        if (unavailable(checked)) return Value{};
+        const auto members = resolution_.binding(enum_of(type)).members;
+        if (members.valid() && std::ranges::any_of(resolution_.scopes()[members.value].bindings, [&](BindingId id) {
+                return resolution_.binding(id).kind == BindingKind::EnumCase && carries_payload(id);
+            })) return Value{};
+        return Value{Type::Bool};
+    }
     // `opt ?? fallback`: the value inside opt, or fallback, which has that
     // type or opt's own (3.6).
     Value coalesce(const BinaryExpr& expr, Value lhs) {
@@ -3806,6 +3859,26 @@ private:
                 }
                 continue;
             }
+            if (const auto* name = implicit_case(nodes_[index].expr); name && unavailable(actual)) {
+                // `.name(...)` fits an enum with that case and payload (3.34).
+                if (!known(target)) { result.deferred = true; continue; }
+                const BindingId owner = enum_of(target);
+                if (!owner.valid() && target.kind == Type::Nominal && resolution_.binding(types_.descriptor(target)->declaration).item &&
+                    resolution_.binding(types_.descriptor(target)->declaration).item->kind == ItemKind::Enum) {
+                    result.deferred = true; continue;
+                }
+                const BindingId id = owner.valid() ? enum_case(owner, name->name.sym) : BindingId{};
+                const auto* call = as<CallExpr>(unparen(nodes_[index].expr));
+                std::vector<usize> mapping;
+                if (!id.valid() || carries_payload(id) != (call != nullptr) ||
+                    (call && !argument_mapping(*call, cast<EnumCaseItem>(resolution_.binding(id).item)->fields, mapping))) {
+                    result.matches = false; continue;
+                }
+                result.lifts += target.optional_depth;
+                if (call) for (usize a = 0; a < call->args.size(); ++a)
+                    work.push_back({expressions_.at(call->args[a].value), signatures_.at(id.value).parameters[mapping[a]]});
+                continue;
+            }
             if (none_mismatch(index, target)) { result.matches = false; continue; }
             // `none` fits any optional (3.6).
             if (none_literal(nodes_[index].expr) && known(target) && target.optional_depth) continue;
@@ -3878,18 +3951,29 @@ private:
     }
 
     bool argument_mapping(const CallExpr& expr, List<Param> params, std::vector<usize>& mapping) const {
+        return argument_mapping(expr, params, [](const Param& p) { return p.name.sym; },
+                                [](const Param& p) { return p.default_value != nullptr; }, mapping);
+    }
+    // Payload fields have no defaults, and an unlabeled one can only be
+    // given positionally (3.34).
+    bool argument_mapping(const CallExpr& expr, List<CaseField> fields, std::vector<usize>& mapping) const {
+        return argument_mapping(expr, fields, [](const CaseField& f) { return f.label.sym; },
+                                [](const CaseField&) { return false; }, mapping);
+    }
+    template <typename P, typename Label, typename Optional>
+    bool argument_mapping(const CallExpr& expr, List<P> params, Label label, Optional optional, std::vector<usize>& mapping) const {
         // Parameter lists are short, so labels are found by scanning; long
         // ones get a table so a call stays linear.
         static constexpr usize kIndexedParams = 32;
         FlatMap<u32, usize> labels;
         if (params.size() >= kIndexedParams)
-            for (usize p = 0; p < params.size(); ++p) labels.try_emplace(params[p].name.sym.id, p);
-        const auto label_index = [&](Symbol label) -> std::optional<usize> {
+            for (usize p = 0; p < params.size(); ++p) labels.try_emplace(label(params[p]).id, p);
+        const auto label_index = [&](Symbol wanted) -> std::optional<usize> {
             if (params.size() >= kIndexedParams) {
-                const auto it = labels.find(label.id);
+                const auto it = labels.find(wanted.id);
                 return it == labels.end() ? std::nullopt : std::optional<usize>(it->second);
             }
-            for (usize p = 0; p < params.size(); ++p) if (params[p].name.sym == label) return p;
+            for (usize p = 0; p < params.size(); ++p) if (label(params[p]) == wanted) return p;
             return std::nullopt;
         };
         SmallVec<u8, 16> used;
@@ -3912,7 +3996,7 @@ private:
             mapping.push_back(index);
         }
         for (usize p = 0; p < used.size(); ++p)
-            if (!used[p] && !params[p].default_value) return false;
+            if (!used[p] && !optional(params[p])) return false;
         return true;
     }
 
@@ -4222,6 +4306,115 @@ private:
         return Value{record.state == CallState::Error ? Type{Type::Error} : Type{Type::Unit}};
     }
 
+    // `Tok.num(1)` builds a case from its payload (3.34). `.num(1)` waits for
+    // the enum its context expects (contextual_case).
+    std::optional<Value> prepare_case(const CallExpr& expr) {
+        const Expr* callee = unparen(expr.callee);
+        if (callee->kind == ExprKind::ImplicitMember) {
+            calls_[&expr].kind = CallKind::EnumCase;
+            return Value{};
+        }
+        if (callee->kind != ExprKind::Member && callee->kind != ExprKind::Name) return std::nullopt;
+        const auto ids = callees(callee);
+        if (ids.size() != 1 || resolution_.binding(ids.front()).kind != BindingKind::EnumCase) return std::nullopt;
+        const Type result = signatures_.at(ids.front().value).result;
+        if (!enum_of(result).valid()) {
+            calls_[&expr].kind = CallKind::EnumCase;
+            return Value{};
+        }
+        return construct_case(expr, ids.front(), result);
+    }
+    // A payload is checked like the arguments of a call, against the case's
+    // fields (3.34).
+    Value construct_case(const CallExpr& expr, BindingId id, Type result) {
+        auto& record = calls_[&expr];
+        record = {.target = id, .kind = CallKind::EnumCase};
+        if (!carries_payload(id)) {
+            diag_.error(DiagCode::CasePayload, expr.span, "enum case '{}' has no payload; write it without parentheses", case_name(id));
+            record.state = CallState::Error;
+            return {Type::Error};
+        }
+        const auto parameters = signatures_.at(id.value).parameters;
+        // A field whose type failed was reported where it is declared.
+        if (std::ranges::contains(parameters, Type{Type::Error})) { record.state = CallState::Error; return {Type::Error}; }
+        for (const auto& arg : expr.args) if (value(arg.value).type == Type::Error) {
+            record.state = CallState::Error; return {Type::Error};
+        }
+        bool matches = argument_mapping(expr, cast<EnumCaseItem>(resolution_.binding(id).item)->fields, record.parameters);
+        bool deferred = false, fits = true;
+        if (matches) for (usize a = 0; a < expr.args.size(); ++a) {
+            const auto p = probe(expressions_.at(expr.args[a].value), parameters[record.parameters[a]]);
+            matches &= p.matches; deferred |= p.deferred; fits &= p.fits;
+        }
+        if (!matches) {
+            auto& d = diag_.error(DiagCode::NoMatchingCall, expr.span, "arguments do not match enum case '{}'", case_name(id));
+            d.notes.push_back({resolution_.binding(id).name.span, "case declared here"});
+            record.state = CallState::Error;
+            return {Type::Error};
+        }
+        if (deferred && fits) return {};
+        record.state = CallState::Resolved;
+        record.parameter_types = parameters;
+        for (usize a = 0; a < expr.args.size(); ++a)
+            if (require(expr.args[a].value, parameters[record.parameters[a]], expr.args[a].value->span).type == Type::Error)
+                record.state = CallState::Error;
+        return {record.state == CallState::Error ? Type{Type::Error} : result};
+    }
+    // `.plus` and `.num(1)` are cases of the enum their context expects, which
+    // may be optional (3.34).
+    Value contextual_case(usize index, const ImplicitMemberExpr& name, Type expected, Span span) {
+        const auto* call = as<CallExpr>(unparen(nodes_[index].expr));
+        const auto settle = [&](Value result) {
+            for (const Expr* expr = nodes_[index].expr;; expr = cast<ParenExpr>(expr)->inner) {
+                nodes_[expressions_.at(expr)].value = result;
+                if (expr->kind != ExprKind::Paren) break;
+            }
+            if (call && result.type == Type::Error) calls_[call].state = CallState::Error;
+            return result.type == Type::Error ? result : Value{expected};
+        };
+        const BindingId owner = enum_of(expected);
+        if (!owner.valid()) {
+            // Generic enums are not checked yet.
+            if (expected.kind == Type::Nominal && resolution_.binding(types_.descriptor(expected)->declaration).item &&
+                resolution_.binding(types_.descriptor(expected)->declaration).item->kind == ItemKind::Enum) return {};
+            diag_.error(DiagCode::ScalarTypeMismatch, span, "expected '{}', found enum case '.{}'",
+                        scalar_type_name(expected), names_.str(name.name.sym));
+            return settle({Type::Error});
+        }
+        CheckedMember record{.state = ResolutionState::Resolved, .owner = owner, .type_receiver = true, .receiver_type = expected.scalar()};
+        const BindingId id = enum_case(owner, name.name.sym);
+        if (!id.valid()) {
+            diag_.error(DiagCode::UnknownMember, name.name.span, "enum '{}' has no case '{}'",
+                        scalar_type_name(expected.scalar()), names_.str(name.name.sym));
+            record.state = ResolutionState::Unresolved;
+            members_[&name] = std::move(record);
+            return settle({Type::Error});
+        }
+        record.candidates.push_back(id);
+        members_[&name] = std::move(record);
+        if (call) {
+            const auto built = construct_case(*call, id, expected.scalar());
+            return unavailable(built) ? built : settle(built);
+        }
+        if (carries_payload(id)) {
+            diag_.error(DiagCode::CasePayload, name.span, "enum case '{}' carries a payload; write '.{}(...)'",
+                        case_name(id), names_.str(name.name.sym));
+            return settle({Type::Error});
+        }
+        return settle({expected.scalar()});
+    }
+    // `Tok.plus` is a value of its enum. `Tok.num` has to be called with its
+    // payload (3.34).
+    Value case_value(const Expr& expr, BindingId id) {
+        if (direct_callees_.contains(&expr)) return {};
+        if (carries_payload(id)) {
+            diag_.error(DiagCode::CasePayload, expr.span, "enum case '{}' carries a payload; call it with one", case_name(id));
+            return {Type::Error};
+        }
+        const Type type = signatures_.at(id.value).result;
+        return enum_of(type).valid() ? Value{type} : Value{};
+    }
+
     std::optional<Value> prepare_constructor(const CallExpr& expr) {
         auto type = entity(expr.callee);
         bool inferred = false;
@@ -4341,6 +4534,7 @@ private:
         if (auto builtin = prepare_builtin(expr)) return *builtin;
         if (auto clone = prepare_clone(expr)) return *clone;
         if (auto method = prepare_array_method(expr)) return *method;
+        if (auto built = prepare_case(expr)) return *built;
         if (auto constructor = prepare_constructor(expr)) return *constructor;
         auto& record = calls_[&expr];
         const Value callee = value(expr.callee);
@@ -4725,6 +4919,9 @@ private:
                     if (record.state == ResolutionState::Unresolved) node.value = {Type::Error};
                     else if (record.state == ResolutionState::Resolved && record.candidates.size() == 1 && value_binding(record.candidates.front()))
                         node.value = nodes_[record.candidates.front().value].value;
+                    else if (record.state == ResolutionState::Resolved && record.candidates.size() == 1 &&
+                             resolution_.binding(record.candidates.front()).kind == BindingKind::EnumCase)
+                        node.value = case_value(*expr, record.candidates.front());
                     if (record.state == ResolutionState::Resolved && record.candidates.size() == 1 && reference_contexts_.contains(expr) &&
                         value_binding(record.candidates.front())) {
                         const auto* field = declared(record.candidates.front().value).annotation;

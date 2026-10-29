@@ -583,7 +583,7 @@ the program runs (3.33). String, pointer and nominal indexing remain later work.
 Non-generic classes, structs and actors check primary constructor arguments,
 labels and defaults using the same type rules as function calls. The result is
 the nominal instance type. Abstract classes and interfaces cannot be constructed
-directly (`E0441`). Secondary constructor overloads, enum cases, constraints,
+directly (`E0441`). Secondary constructor overloads, constraints,
 initialization ordering, ownership and construction effects need later checks.
 Independently provable constructor shape/type/range errors are still diagnosed.
 
@@ -1566,3 +1566,29 @@ place, passing one `inout` (also as the default of an omitted parameter),
 or moving the array is `E0506`, with a note at
 the loop. Reading it and changing other places are fine, and so is `for x in
 a.clone() { a.append(x) }`, which runs over a copy.
+
+## 3.34 Enum cases [Core]
+
+An enum's cases are values of the enum. A case without a payload is written
+`Tok.plus`; a case with one is called with it, `Tok.num(1)`. Payload
+arguments follow the rules of a call (3.15): positional ones come first, in
+order, and labeled ones follow in any order. A field declared without a
+label can only be given positionally, and fields have no defaults. A wrong
+number of arguments, an unknown label or an argument of the wrong type is
+`E0411`. Building a case moves its payload in (3.30).
+
+Where the context expects an enum, or an optional of one, `.plus` and
+`.num(1)` name its cases without the enum's name. That context is the same
+one that gives `none` its type: an annotation, a parameter, a return type,
+a branch, an array element or the other side of `==`. Without such a
+context the case stays uninferred, and stage0 code generation asks for an
+annotation. An expected type that is not an enum is `E0400`, and a name
+that is not one of its cases is `E0450`.
+
+Calling a case that has no payload, or naming a case that has one without
+calling it, is `E0413`.
+
+`==` and `!=` compare two values of an enum whose cases carry no payload;
+either side can be `.case`. Comparing different types is `E0400`. Equality
+of enums with payloads is not checked yet, like other composite
+equality (3.28). Generic enums are not checked yet.

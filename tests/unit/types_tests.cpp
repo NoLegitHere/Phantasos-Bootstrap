@@ -490,6 +490,90 @@ fun bad(i: Int, o: Int?, flag: Bool, s: String?) {
     CHECK(composite.binding("same") == Type::Deferred && composite.binding("literal") == Type::Deferred);
 }
 
+// Enum cases (3.34): qualified and contextual cases, payload arguments, and
+// equality of enums without payloads.
+void enum_cases() {
+    Frontend f;
+    f.check(R"(
+enum Tok {
+    num(Int8)
+    pair(a: Int, b: Bool)
+    plus
+}
+enum Dir { up, down }
+fun take(t: Tok?): Int = 0
+fun pick(flag: Bool): Tok {
+    if flag { return .plus }
+    return .num(7)
+}
+let qualified = Tok.plus
+let built = Tok.num(3)
+let labeled = Tok.pair(b: true, a: 1)
+let contextual: Tok = .num(4)
+let optional: Tok? = .plus
+let argument = take(.pair(1, b: false))
+let branches: Tok = if true { .plus } else { Tok.num(1) }
+let list: [Tok] = [.plus, .num(2)]
+let dir = Dir.up
+let same = dir == .down
+let differ = Dir.up != dir
+let payloads = qualified == .plus
+)");
+    const auto tok = f.binding("qualified");
+    CHECK(tok.kind == Type::Nominal && !tok.optional_depth);
+    CHECK(f.binding("built") == tok && f.binding("labeled") == tok && f.binding("contextual") == tok);
+    CHECK(f.binding("optional") == tok.optional() && f.binding("argument") == Type::Int);
+    CHECK(f.binding("branches") == tok && f.binding("t") == tok.optional());
+    CHECK(f.binding("same") == Type::Bool && f.binding("differ") == Type::Bool);
+    // Enums with payloads defer their equality, like other composites.
+    CHECK(f.binding("payloads") == Type::Deferred);
+
+    // The call records the case and maps the payload to its fields.
+    const auto* labeled = ast::cast<ast::VarItem>(f.result.syntax->items[6]);
+    const auto* call = f.result.scalar_types->call(ast::cast<ast::CallExpr>(labeled->init));
+    CHECK(call && call->kind == CallKind::EnumCase && call->state == CallState::Resolved);
+    CHECK(f.session.names().str(f.result.resolution->binding(call->target).name.sym) == "pair");
+    CHECK((call->parameters == std::vector<usize>{1, 0}));
+    CHECK((call->parameter_types == std::vector<Type>{Type::Int, Type::Bool}));
+    // `.num(4)` resolves its case through the expected enum.
+    const auto* contextual = ast::cast<ast::CallExpr>(ast::cast<ast::VarItem>(f.result.syntax->items[7])->init);
+    CHECK(f.result.scalar_types->call(contextual)->kind == CallKind::EnumCase);
+    CHECK((f.result.scalar_types->call(contextual)->parameter_types == std::vector<Type>{Type::Int8}));
+    const auto* member = f.result.scalar_types->member(contextual->callee);
+    CHECK(member && member->state == ResolutionState::Resolved && member->candidates.size() == 1);
+    CHECK(f.result.scalar_types->expression(contextual) == tok);
+
+    Frontend errors;
+    errors.check(R"(
+enum Tok {
+    num(Int8)
+    plus
+}
+enum Other { plus }
+let wrongType: Int = Tok.plus
+let payloadType = Tok.num(true)
+let arity = Tok.num(1, 2)
+let label = Tok.num(x: 1)
+let range = Tok.num(300)
+let unknown: Tok = .nope
+let bare = Tok.num
+let called = Tok.plus()
+let implicitBare: Tok = .num
+let implicitCalled: Tok = .plus(1)
+let notEnum: Int = .plus
+let mixed = Tok.plus == Other.plus
+)", {DiagCode::ScalarTypeMismatch, DiagCode::NoMatchingCall, DiagCode::NoMatchingCall, DiagCode::NoMatchingCall,
+      DiagCode::ScalarLiteralRange, DiagCode::UnknownMember, DiagCode::CasePayload, DiagCode::CasePayload,
+      DiagCode::CasePayload, DiagCode::CasePayload, DiagCode::ScalarTypeMismatch, DiagCode::ScalarTypeMismatch});
+    CHECK(errors.binding("unknown") != Type::Deferred);
+    CHECK(errors.binding("mixed") == Type::Error);
+
+    // Generic enums are checked later; their cases stay deferred.
+    Frontend generic;
+    generic.check("enum Opt<T> { some(T), nothing }\nlet a = Opt<Int>.some(1)\nlet b: Opt<Int> = .nothing\n");
+    CHECK(generic.binding("a") == Type::Deferred);
+}
+
 int main() {
     retained_inference_and_context();
     diagnostics_and_suppression();
@@ -503,4 +587,5 @@ int main() {
     session_gating_and_lifetimes();
     long_trees_and_forward_chains();
     optionals();
+    enum_cases();
 }

@@ -1,0 +1,45 @@
+enum_cases.phs:49:26: error[E0400]: expected 'Int', found 'Tok'
+   49 |     let wrongType: Int = Tok.plus
+      |                          ^^^^^^^^
+enum_cases.phs:50:23: error[E0411]: arguments do not match enum case 'Tok.num'
+   50 |     let payloadType = Tok.num(true)
+      |                       ^^^^^^^^^^^^^
+enum_cases.phs:19:5: note: case declared here
+   19 |     num(Int8)
+      |     ^^^
+enum_cases.phs:51:17: error[E0411]: arguments do not match enum case 'Tok.num'
+   51 |     let arity = Tok.num(1, 2)
+      |                 ^^^^^^^^^^^^^
+enum_cases.phs:19:5: note: case declared here
+   19 |     num(Int8)
+      |     ^^^
+enum_cases.phs:52:21: error[E0411]: arguments do not match enum case 'Tok.num'
+   52 |     let unlabeled = Tok.num(value: 1)
+      |                     ^^^^^^^^^^^^^^^^^
+enum_cases.phs:19:5: note: case declared here
+   19 |     num(Int8)
+      |     ^^^
+enum_cases.phs:53:25: error[E0402]: integer literal is out of range for 'Int8'
+   53 |     let range = Tok.num(300)
+      |                         ^^^
+enum_cases.phs:54:25: error[E0450]: enum 'Tok' has no case 'nope'
+   54 |     let unknown: Tok = .nope
+      |                         ^^^^
+enum_cases.phs:55:16: error[E0413]: enum case 'Tok.num' carries a payload; call it with one
+   55 |     let bare = Tok.num
+      |                ^^^^^^^
+enum_cases.phs:56:18: error[E0413]: enum case 'Tok.plus' has no payload; write it without parentheses
+   56 |     let called = Tok.plus()
+      |                  ^^^^^^^^^^
+enum_cases.phs:57:29: error[E0413]: enum case 'Tok.num' carries a payload; write '.num(...)'
+   57 |     let implicitBare: Tok = .num
+      |                             ^^^^
+enum_cases.phs:58:31: error[E0413]: enum case 'Tok.plus' has no payload; write it without parentheses
+   58 |     let implicitCalled: Tok = .plus(1)
+      |                               ^^^^^^^^
+enum_cases.phs:59:24: error[E0400]: expected 'Int', found enum case '.plus'
+   59 |     let notEnum: Int = .plus
+      |                        ^^^^^
+enum_cases.phs:60:27: error[E0400]: expected 'Dir', found 'Tok'
+   60 |     let mixed = Dir.up == Tok.plus
+      |                           ^^^^^^^^

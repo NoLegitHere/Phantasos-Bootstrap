@@ -1,0 +1,15 @@
+enum_moves.phs:25:11: error[E0504]: 's' is used after it was moved
+   25 |     print(s)
+      |           ^
+enum_moves.phs:24:22: note: moved here
+   24 |     let m = Msg.text(s)
+      |                      ^
+enum_moves.phs:23:9: note: declared here with type 'String', which is not Copy
+   23 |     let s = "hi"
+      |         ^
+enum_moves.phs:26:24: error[E0505]: cannot move out of borrowed parameter 'borrowed'
+   26 |     let n: Msg = .text(borrowed)
+      |                        ^^^^^^^^
+enum_moves.phs:26:24: note: declare it 'own' to take ownership, or use 'borrowed.clone()' to move a copy
+   26 |     let n: Msg = .text(borrowed)
+      |                        ^^^^^^^^

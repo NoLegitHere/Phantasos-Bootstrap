@@ -81,6 +81,7 @@ enum class DiagCode : u16 {
     NotCallable = 410,
     NoMatchingCall = 411,
     AmbiguousCall = 412,
+    CasePayload = 413,
     ConversionArguments = 420,
     ConversionOperand = 421,
     NarrowingConversion = 422,
@@ -160,6 +161,7 @@ constexpr std::string_view diag_code(DiagCode code) {
         case DiagCode::NotCallable: return "E0410";
         case DiagCode::NoMatchingCall: return "E0411";
         case DiagCode::AmbiguousCall: return "E0412";
+        case DiagCode::CasePayload: return "E0413";
         case DiagCode::ConversionArguments: return "E0420";
         case DiagCode::ConversionOperand: return "E0421";
         case DiagCode::NarrowingConversion: return "E0422";

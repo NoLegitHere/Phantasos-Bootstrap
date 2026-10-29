@@ -325,9 +325,10 @@ private:
         return aggregate(index);
     }
     // The declaration index of the field a member expression reads.
-    u32 field(const MemberExpr& member) {
-        (void)lower_type(scalar(member.base));
-        const auto* record = types_.member(&member);
+    u32 field(const MemberExpr& member) { return field(&member, member.base); }
+    u32 field(const Expr* member, const Expr* base) {
+        (void)lower_type(scalar(base));
+        const auto* record = types_.member(member);
         PHS_ASSERT(record && record->candidates.size() == 1);
         return fields_.at(resolution_.binding(record->candidates.front()).name.span.lo);
     }
@@ -686,6 +687,8 @@ private:
                 if (indirect(*call)) work.push_back(call->callee);
             } else if (const auto* member = as<MemberExpr>(expr)) {
                 work.push_back(member->base);
+            } else if (const auto* chained = as<OptMemberExpr>(expr)) {
+                work.push_back(chained->base);
             } else if (const auto* element = as<TupleFieldExpr>(expr)) {
                 work.push_back(element->base);
             } else if (const auto* tuple = as<TupleExpr>(expr)) {
@@ -919,6 +922,35 @@ private:
                     values.push_back(dst);
                     break;
                 }
+                case ExprKind::OptMember: {
+                    const auto& chained = *cast<OptMemberExpr>(expr);
+                    if (stage == 0) {
+                        tasks.push_back({chained.base});
+                        break;
+                    }
+                    tasks.pop_back();
+                    const Reg base = values.back();
+                    values.pop_back();
+                    // A diverging base has already ended the block.
+                    if (!base.valid()) {
+                        values.push_back({});
+                        break;
+                    }
+                    const u32 index = field(&chained, chained.base);
+                    const Type type = fun_->regs[base.id];
+                    const Reg result = reg(lower_type(scalar(expr)));
+                    const u32 join = chain(base, result);
+                    const Type structure = program_.layouts[layout_index(type)].fields[1];
+                    const Reg inner = reg(structure);
+                    emit({.op = Op::Field, .dst = inner, .a = base, .imm = 1});
+                    const Reg value = reg(program_.layouts[layout_index(structure)].fields[index]);
+                    emit({.op = Op::Field, .dst = value, .a = inner, .imm = index});
+                    copy(result, value);
+                    end(Term::Br, {}, join);
+                    current_ = join;
+                    values.push_back(result);
+                    break;
+                }
                 case ExprKind::TupleField: {
                     const auto& element = *cast<TupleFieldExpr>(expr);
                     if (stage == 0) {
@@ -975,15 +1007,36 @@ private:
                         else values.push_back(snapshots ? snapshot(self_) : self_);
                         break;
                     }
+                    // Through `?.`, the arguments and the call run only when
+                    // the receiver holds a value, which the call receives.
+                    if (stage == first && chained(call) && values.back().valid()) {
+                        const Reg receiver = values.back();
+                        const Type result = lower_type(scalar(&call));
+                        task.result = has_value(result) ? reg(result) : Reg{};
+                        task.join = chain(receiver, task.result);
+                        const Reg inner = reg(program_.layouts[layout_index(fun_->regs[receiver.id])].fields[1]);
+                        emit({.op = Op::Field, .dst = inner, .a = receiver, .imm = 1});
+                        values.back() = inner;
+                    }
                     if (stage - first < call.args.size()) {
                         tasks.push_back({call.args[stage - first].value});
                         break;
                     }
+                    const Reg result = task.result;
+                    const u32 join = task.join;
                     tasks.pop_back();
                     const auto count = static_cast<std::ptrdiff_t>(call.args.size() + first);
                     std::vector<Reg> args(values.end() - count, values.end());
                     values.resize(values.size() - static_cast<usize>(count));
-                    values.push_back(this->call(call, std::move(args)));
+                    const Reg returned = this->call(call, std::move(args));
+                    if (!join) {
+                        values.push_back(returned);
+                        break;
+                    }
+                    copy(result, returned);
+                    end(Term::Br, {}, join);
+                    current_ = join;
+                    values.push_back(result);
                     break;
                 }
                 case ExprKind::Closure:
@@ -1084,6 +1137,8 @@ private:
                 if (indirect(*call)) work.push_back(call->callee);
             } else if (const auto* member = as<MemberExpr>(expr)) {
                 work.push_back(member->base);
+            } else if (const auto* chained = as<OptMemberExpr>(expr)) {
+                work.push_back(chained->base);
             } else if (const auto* element = as<TupleFieldExpr>(expr)) {
                 work.push_back(element->base);
             } else if (const auto* tuple = as<TupleExpr>(expr)) {
@@ -1125,6 +1180,21 @@ private:
         end(Term::Br, {}, join);
         current_ = join;
         values.push_back(result);
+    }
+
+    bool chained(const CallExpr& call) const { return unparen(call.callee)->kind == ExprKind::OptMember; }
+    // Starts `opt?.x`: when opt is `none`, result becomes `none` and control
+    // goes to the returned join block; otherwise the current block continues.
+    u32 chain(Reg optional, Reg result) {
+        const Reg some = reg(Type::Bool);
+        emit({.op = Op::Field, .dst = some, .a = optional, .imm = 0});
+        const u32 then = block(), other = block(), join = block();
+        end(Term::CondBr, some, then, other);
+        current_ = other;
+        if (result.valid()) emit({.op = Op::None, .dst = result});
+        end(Term::Br, {}, join);
+        current_ = then;
+        return join;
     }
 
     // `opt!`: the value inside opt, or a panic at the expression when it is `none`.
@@ -1248,7 +1318,8 @@ private:
     }
 
     Reg call(const CallExpr& call, std::vector<Reg> args) {
-        const Type type = lower_type(scalar(&call));
+        // Through `?.`, the method's own result, which the caller makes optional.
+        const Type type = chained(call) ? lower_type(concrete(types_.call(&call)->result)) : lower_type(scalar(&call));
         if (const CheckedConversion* conversion = types_.conversion(&call)) {
             if (!args.front().valid()) return {};
             if (is_optional(type)) return checked_conversion(args.front(), type);

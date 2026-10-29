@@ -119,3 +119,15 @@ class Field(a: Int) {
     let b: Int = unsafe { a = 1
         0 }
 }
+
+struct Taker(let n: Int) {
+    fun take(k: Int): Int = k
+}
+
+fun chainedArgument(p: Taker?): Int {
+    var x: Int
+    let r = p?.take(if true { x = 1
+        0 } else { x = 2
+        0 })
+    return x
+}

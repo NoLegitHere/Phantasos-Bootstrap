@@ -1,15 +1,24 @@
-optionals.phs:33:16: error[E0404]: 'let' condition needs an optional value, found 'Int'
-   33 |     if let x = n {}
+optionals.phs:46:16: error[E0404]: 'let' condition needs an optional value, found 'Int'
+   46 |     if let x = n {}
       |                ^
-optionals.phs:34:16: error[E0404]: 'let' condition needs an optional value; 'none' never holds one
-   34 |     if let y = none {}
+optionals.phs:47:16: error[E0404]: 'let' condition needs an optional value; 'none' never holds one
+   47 |     if let y = none {}
       |                ^^^^
-optionals.phs:35:13: error[E0404]: '??' needs an optional on its left, found 'Int'
-   35 |     let z = n ?? 1
+optionals.phs:48:13: error[E0404]: '??' needs an optional on its left, found 'Int'
+   48 |     let z = n ?? 1
       |             ^
-optionals.phs:36:13: error[E0404]: '??' needs an optional on its left, found 'none'
-   36 |     let w = none ?? 1
+optionals.phs:49:13: error[E0404]: '??' needs an optional on its left, found 'none'
+   49 |     let w = none ?? 1
       |             ^^^^
-optionals.phs:37:24: error[E0400]: expected 'Int', found 'String'
-   37 |     let v = find(n) ?? "zero"
+optionals.phs:50:24: error[E0400]: expected 'Int', found 'String'
+   50 |     let v = find(n) ?? "zero"
       |                        ^^^^^^
+optionals.phs:51:13: error[E0404]: '?.' needs an optional on its left, found 'Int'
+   51 |     let u = n?.size
+      |             ^
+optionals.phs:52:13: error[E0404]: '?.' needs an optional on its left, found 'none'
+   52 |     let t = none?.size
+      |             ^^^^
+optionals.phs:53:20: error[E0450]: type 'Named' has no member 'missing'
+   53 |     let s = named?.missing
+      |                    ^^^^^^^

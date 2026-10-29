@@ -87,6 +87,9 @@ bool conditional(const Expr& expr) {
     return binary && (binary->op == BinOp::And || binary->op == BinOp::Or || binary->op == BinOp::Coalesce);
 }
 
+// A call through `?.`, whose arguments run only when the receiver holds a value.
+bool chained(const CallExpr& call) { return unparen(call.callee)->kind == ExprKind::OptMember; }
+
 // Direct expression operands in evaluation order (left to right). Statements
 // inside blocks and the branches of control expressions are not included.
 using ExprList = SmallVec<const Expr*, 8>;
@@ -986,7 +989,7 @@ private:
             if (!expr) continue;
             switch (expr->kind) {
                 case ExprKind::Name: case ExprKind::SelfValue: case ExprKind::Super: case ExprKind::Member:
-                case ExprKind::TupleField: case ExprKind::Index:
+                case ExprKind::OptMember: case ExprKind::TupleField: case ExprKind::Index:
                     consumed_.insert(expr);
                     break;
                 case ExprKind::Tuple: for (const Expr* elem : cast<TupleExpr>(expr)->elems) work.push_back(elem); break;
@@ -1067,6 +1070,13 @@ private:
                 // Fields never move out on their own (D2), and no callable owns a static field.
                 subject = std::string(record->type_receiver ? "static " : "") + "field '" +
                           std::string(names_.str(member->name.sym)) + "'";
+            } else if (const auto* chained = as<OptMemberExpr>(&expr)) {
+                // Nor through `?.`, which leaves the optional holding its value.
+                const auto* record = types_.member(chained);
+                if (!record || record->state != ResolutionState::Resolved || record->candidates.size() != 1 ||
+                    resolution_.binding(record->candidates.front()).kind != BindingKind::Field)
+                    return false;
+                subject = "field '" + std::string(names_.str(chained->name.sym)) + "'";
             } else {
                 subject = "an element";
             }
@@ -1484,11 +1494,23 @@ private:
                 }
                 stack.push_back({expr, true});
                 if (conditional(*expr)) { stack.push_back({cast<BinaryExpr>(expr)->lhs, false}); continue; }
+                if (const auto* call = as<CallExpr>(expr); call && chained(*call)) {
+                    stack.push_back({call->callee, false});
+                    continue;
+                }
                 children.clear();
                 operands(*expr, children);
                 for (auto it = children.rbegin(); it != children.rend(); ++it)
                     if (*it) stack.push_back({*it, false});
                 continue;
+            }
+            // Through `?.`, the arguments and the call run on only some paths.
+            const auto* skippable = as<CallExpr>(expr);
+            if (skippable && !chained(*skippable)) skippable = nullptr;
+            State skipped;
+            if (skippable) {
+                skipped = state;
+                for (const auto& arg : skippable->args) eval(arg.value, state);
             }
             if (const auto* name = as<NameExpr>(expr)) read(*name, state);
             else if (state.live && consumed_.contains(expr)) borrowed_move(*expr);
@@ -1505,6 +1527,7 @@ private:
                 eval(cast<BinaryExpr>(expr)->rhs, rhs);
                 merge(state, rhs);
             }
+            if (skippable) merge(state, skipped);
         }
     }
 

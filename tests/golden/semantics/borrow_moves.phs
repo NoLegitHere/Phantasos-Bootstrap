@@ -32,12 +32,14 @@ fun parameters(a: String, b: inout String, c: own String) {
     take(c)
     take(a.clone())
 }
-fun parts(name: Name, pair: (Int, String), list: [String], maybe: String?) {
+fun parts(name: Name, pair: (Int, String), list: [String], maybe: String?, named: Name?) {
     let n = name.n
     let t = name.text
     let s = pair.1
     let e = list[0]
     let m = maybe!
+    let c = named?.text
+    let k = named?.n
 }
 fun owned() {
     let name = Name("x", 1)

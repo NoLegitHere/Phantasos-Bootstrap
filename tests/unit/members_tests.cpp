@@ -173,12 +173,19 @@ void errors_and_deferred_receivers() {
         {"class C { fun read(x: Int): Int = x }\nlet bad = C().read(true)", DiagCode::NoMatchingCall},
         {"class C { fun read(x: Int8): Int8 = x }\nlet bad = C().read(128)", DiagCode::ScalarLiteralRange},
         {"class C { fun f(x: Int): Int = x; fun f(x: Int64): Int64 = x }\nlet x = C().f(Int8(1))", DiagCode::NoMatchingCall},
-        {"class C { fun f(x: Int8): Int8 = x; fun f(x: Int64): Int64 = x }\nlet x = C().f(1)", DiagCode::AmbiguousCall}
+        {"class C { fun f(x: Int8): Int8 = x; fun f(x: Int64): Int64 = x }\nlet x = C().f(1)", DiagCode::AmbiguousCall},
+        {"class C { let v: Int = 1 }\nlet bad = C()?.v", DiagCode::NotOptional},
+        {"let bad = none?.v", DiagCode::NotOptional},
+        {"class C { let v: Int = 1 }\nfun f(c: C?): Int? = c?.missing", DiagCode::UnknownMember}
     }) { Frontend bad; bad.check(source, {code}); }
     Frontend f;
     f.check(R"(
 open class Base { let value: Int = 1 }
-class Derived: Base { fun local(): Int = 1 }
+class Derived: Base {
+    fun local(): Int = 1
+    fun half(): Int? = none
+    fun nothing() {}
+}
 let inherited = Derived().value
 let hierarchy = Derived().local()
 class Box<T>(let value: T) {}
@@ -187,6 +194,9 @@ fun generic(box: Box<Int>, error: Error, sharedValue: shared Derived, optional: 
     let builtin = error.message
     let wrapped = sharedValue.value
     let maybe = optional?.value
+    let flat = optional?.half()
+    let called = optional?.local()
+    let unit = optional?.nothing()
 }
 class C { fun read(): Int = 1 }
 let saved = C().read
@@ -201,7 +211,12 @@ let genericCall = GenericMethods().pick(1)
     CHECK(f.value("hierarchy") == Type::Int);
     CHECK(f.value("genericCall") == Type::Int);
     CHECK(f.value("dependent", BindingKind::Local) == Type::Int);
-    for (std::string_view name : {"builtin", "wrapped", "maybe"}) CHECK(f.value(name, BindingKind::Local) == Type::Deferred);
+    for (std::string_view name : {"builtin", "wrapped"}) CHECK(f.value(name, BindingKind::Local) == Type::Deferred);
+    // `?.` reads the member of the value inside the optional (3.6).
+    CHECK(f.value("maybe", BindingKind::Local) == Type{Type::Int}.optional());
+    CHECK(f.value("flat", BindingKind::Local) == Type{Type::Int}.optional());
+    CHECK(f.value("called", BindingKind::Local) == Type{Type::Int}.optional());
+    CHECK(f.value("unit", BindingKind::Local) == Type::Unit);
 }
 
 void selected_dependencies_and_long_chains() {

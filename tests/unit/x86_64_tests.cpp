@@ -714,6 +714,20 @@ void optionals() {
     agrees("fun main(): Int {\n    let x: Int8? = none\n    return Int(x!)\n}\n");
 }
 
+void optional_chaining() {
+    // Through `?.`: fields, flattened optional results, Unit results, calls
+    // returning a struct by address, and arguments skipped on `none`.
+    agrees("struct L(let a: Int, let b: Int, let c: Int)\n"
+           "struct P(let x: Int8, let t: Int?) {\n    fun plus(k: Int): Int = Int(x) + k\n"
+           "    fun half(): Int? = if x % 2 == 0 { Int(x) / 2 } else { none }\n"
+           "    fun line(): L = L(Int(x), 2, 3)\n    fun nothing() {}\n}\n"
+           "fun boom(): Int = 1 / 0\n"
+           "fun main(): Int {\n    let p: P? = P(4, 5)\n    let n: P? = none\n    n?.nothing()\n    p?.nothing()\n"
+           "    return Int(p?.x ?? 0) + Int(n?.x ?? 10) + (p?.t ?? 0) * 100 + (n?.t ?? 2) * 1000 +\n"
+           "        (p?.plus(1) ?? 0) * 10000 + (p?.half() ?? 0) * 100000 + (n?.plus(boom()) ?? 0) +\n"
+           "        (p?.line()?.c ?? 0) * 1000000 + (n?.line()?.a ?? 0)\n}\n");
+}
+
 int main() {
     object_layout();
     programs();
@@ -721,6 +735,7 @@ int main() {
     function_values();
     closures();
     optionals();
+    optional_chaining();
     random_expressions();
     std::println("x86_64 tests passed");
 }

@@ -152,6 +152,16 @@ the fields that were already initialized are destroyed.
   type otherwise. A branching fallback (`if`, a block) takes the inner type
   when every branch fits it, and `opt`'s type otherwise. A left operand that
   is not an optional, or is `none` itself, is `E0404`.
+- `opt?.member` reads a field or calls a method of the value inside `opt`.
+  When `opt` is `none`, the result is `none` and the call's arguments are
+  not evaluated, so for initialization (3.24) and moves (3.30) they run on
+  only some paths. The result is the member's type made optional, unless it is
+  optional already, in which case it is not wrapped again. A method whose
+  result is `Unit` or `Never` gives `Unit`. Each step of a chain needs its
+  own `?.`: in `a?.b?.c`, the second `?.` reads `c` from the optional `a?.b`.
+  A left operand that is not an optional, or is `none` itself, is `E0404`; a
+  member the inner type does not have is `E0450`. Moving a field out through
+  `?.` follows 3.30.
 - `==` and `!=` compare an optional with `none`, with a value of its inner
   type (which lifts), or with another optional of the same type. Stage0
   checks this when the inner type is a built-in scalar or `String`; for
@@ -479,7 +489,7 @@ fewer optional lifts after numeric literal preferences. Checked results cannot
 be used as ordinary numeric values: unwrap a known optional with `!` before
 numeric use. Unwrapping retains its element type; runtime failure handling is
 defined in section 3.6, which also covers `none`, `let` conditions, `??`
-and optional equality. Optional chaining (`?.`) remains a later check.
+optional equality and optional chaining (`?.`).
 
 Integer/floating interchange and floating narrowing remain explicitly deferred
 until their rounding and failure policies are specified. Pending source types
@@ -1059,14 +1069,15 @@ the subset, so that nothing half-checked reaches code generation:
   ones included, with inferred or explicit type arguments, closures
   (3.29) and calls of function values, unary `-`, `!` and `~`, arithmetic including
   the wrapping forms, `&`, `|`, `^`, comparisons, `&&` and `||`, `none`, `??`, `!`,
-  and `==` and `!=` on optionals whose innermost type is a scalar other than
+  `?.` on struct fields and on calls of struct methods that are not generic or
+  `mut fun`, and `==` and `!=` on optionals whose innermost type is a scalar other than
   `String`. Used `if` and block
   results are allowed where their type is known (3.24).
 
 Everything else reports `E0600`. That includes shifts, `for`, `defer`,
 `throw`, `match`, `unsafe` blocks, operators on strings, string interpolation,
 floating-point values, arrays, comparisons of tuples and of optionals of
-anything but scalars, `?.`, classes, enums, values of an interface type, generic
+anything but scalars, `?.` calls of generic, interface or `mut fun` methods, classes, enums, values of an interface type, generic
 interfaces, interfaces that extend others, `where` clauses, members other
 than struct fields and method calls, method values, globals, operators on function values,
 and values of `where`-constrained functions. A closure's body is

@@ -130,3 +130,9 @@ flow_errors.phs:119:27: error[E0502]: cannot assign to immutable 'a'
 flow_errors.phs:118:13: note: parameters are read-only unless declared 'inout'
   118 | class Field(a: Int) {
       |             ^
+flow_errors.phs:132:12: error[E0501]: 'x' is used before it is initialized
+  132 |     return x
+      |            ^
+flow_errors.phs:128:9: note: declared here without an initializer
+  128 |     var x: Int
+      |         ^

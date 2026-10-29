@@ -46,45 +46,51 @@ borrow_moves.phs:40:13: error[E0505]: cannot move out of borrowed parameter 'may
 borrow_moves.phs:40:13: note: declare it 'own' to take ownership, or use 'maybe.clone()' to move a copy
    40 |     let m = maybe!
       |             ^^^^^
-borrow_moves.phs:44:13: error[E0505]: cannot move out of field 'text'
-   44 |     let t = name.text
+borrow_moves.phs:41:13: error[E0505]: cannot move out of field 'text'
+   41 |     let c = named?.text
+      |             ^^^^^^^^^^^
+borrow_moves.phs:41:13: note: use '.clone()' to move a copy
+   41 |     let c = named?.text
+      |             ^^^^^^^^^^^
+borrow_moves.phs:46:13: error[E0505]: cannot move out of field 'text'
+   46 |     let t = name.text
       |             ^^^^^^^^^
-borrow_moves.phs:44:13: note: use '.clone()' to move a copy
-   44 |     let t = name.text
+borrow_moves.phs:46:13: note: use '.clone()' to move a copy
+   46 |     let t = name.text
       |             ^^^^^^^^^
-borrow_moves.phs:48:22: error[E0505]: cannot move out of captured 's'
-   48 |     let again = { -> s }
+borrow_moves.phs:50:22: error[E0505]: cannot move out of captured 's'
+   50 |     let again = { -> s }
       |                      ^
-borrow_moves.phs:48:22: note: a closure can be called more than once; use 's.clone()' to move a copy
-   48 |     let again = { -> s }
+borrow_moves.phs:50:22: note: a closure can be called more than once; use 's.clone()' to move a copy
+   50 |     let again = { -> s }
       |                      ^
-borrow_moves.phs:50:32: error[E0505]: cannot move out of borrowed parameter 'x'
-   50 |     let moved = { x: String -> x }
+borrow_moves.phs:52:32: error[E0505]: cannot move out of borrowed parameter 'x'
+   52 |     let moved = { x: String -> x }
       |                                ^
-borrow_moves.phs:50:32: note: use 'x.clone()' to move a copy
-   50 |     let moved = { x: String -> x }
+borrow_moves.phs:52:32: note: use 'x.clone()' to move a copy
+   52 |     let moved = { x: String -> x }
       |                                ^
-borrow_moves.phs:53:27: error[E0505]: cannot move out of captured 's'
-   53 |     let outer = { -> { -> s.clone() } }
+borrow_moves.phs:55:27: error[E0505]: cannot move out of captured 's'
+   55 |     let outer = { -> { -> s.clone() } }
       |                           ^
-borrow_moves.phs:53:27: note: a closure can be called more than once; capture a copy made with 's.clone()' instead
-   53 |     let outer = { -> { -> s.clone() } }
+borrow_moves.phs:55:27: note: a closure can be called more than once; capture a copy made with 's.clone()' instead
+   55 |     let outer = { -> { -> s.clone() } }
       |                           ^
-borrow_moves.phs:62:24: error[E0505]: cannot move out of 'super'
-   62 |     fun leak(): Base = super
+borrow_moves.phs:64:24: error[E0505]: cannot move out of 'super'
+   64 |     fun leak(): Base = super
       |                        ^^^^^
-borrow_moves.phs:62:24: note: use '.clone()' to move a copy
-   62 |     fun leak(): Base = super
+borrow_moves.phs:64:24: note: use '.clone()' to move a copy
+   64 |     fun leak(): Base = super
       |                        ^^^^^
-borrow_moves.phs:63:38: error[E0505]: cannot move out of static field 'tag'
-   63 |     static fun qualified(): String = Derived.tag
+borrow_moves.phs:65:38: error[E0505]: cannot move out of static field 'tag'
+   65 |     static fun qualified(): String = Derived.tag
       |                                      ^^^^^^^^^^^
-borrow_moves.phs:63:38: note: use '.clone()' to move a copy
-   63 |     static fun qualified(): String = Derived.tag
+borrow_moves.phs:65:38: note: use '.clone()' to move a copy
+   65 |     static fun qualified(): String = Derived.tag
       |                                      ^^^^^^^^^^^
-borrow_moves.phs:64:33: error[E0505]: cannot move out of static field 'tag'
-   64 |     static fun bare(): String = tag
+borrow_moves.phs:66:33: error[E0505]: cannot move out of static field 'tag'
+   66 |     static fun bare(): String = tag
       |                                 ^^^
-borrow_moves.phs:64:33: note: use '.clone()' to move a copy
-   64 |     static fun bare(): String = tag
+borrow_moves.phs:66:33: note: use '.clone()' to move a copy
+   66 |     static fun bare(): String = tag
       |                                 ^^^

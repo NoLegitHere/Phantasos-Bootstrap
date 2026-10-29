@@ -1,9 +1,6 @@
 gate_errors.phs:20:15: error[E0600]: stage0 code generation does not support operators on strings yet
    20 |     return if s == "hi" { 1 } else { 0 }
       |               ^^^^^^^^^
-gate_errors.phs:25:5: error[E0600]: stage0 code generation does not support 'for' loops yet
-   25 |     for x in 0..n { total += x }
-      |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 gate_errors.phs:26:5: error[E0600]: stage0 code generation does not support 'defer' yet
    26 |     defer { total = 0 }
       |     ^^^^^^^^^^^^^^^^^^^

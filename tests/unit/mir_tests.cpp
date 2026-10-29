@@ -743,6 +743,43 @@ void arrays() {
                  "    print(make()[1])\n    return total(b.items)\n}\n") == 10 + 3);
 }
 
+void growth_and_loops() {
+    Frontend f;
+    const auto text = f.dump("fun main(): Int {\n    var a: [Int] = []\n    a.append(1)\n    for x in a { return x }\n"
+                             "    return 0\n}\n");
+    // append reserves room, bumps the count and stores; `for` reads elements below the count.
+    CHECK(text.contains(" = reserve %1\n") && text.contains("    store %") && text.contains("= load %"));
+    // append doubles past the literal's capacity; removeLast gives the last element or `none`.
+    CHECK(result("fun main(): Int {\n    var a = [1]\n    var i = 0\n    while i < 100 {\n        a.append(i)\n"
+                 "        i += 1\n    }\n    let last = a.removeLast() ?? -1\n    var e: [Int] = []\n"
+                 "    return a.count + last * 1000 + (e.removeLast() ?? 7) * 100000\n}\n") ==
+          100 + 99000 + 700000);
+    // Loops over arrays and ranges, with `continue` and `break`; the inclusive
+    // range stops at the type's maximum without overflowing.
+    CHECK(result("fun main(): Int {\n    var total = 0\n    for x in [1, 2, 3] { total += x }\n"
+                 "    for i in 0..<10 {\n        if i == 3 { continue }\n        if i == 6 { break }\n"
+                 "        total += i * 10\n    }\n    var n = 0\n    let top: Int8 = 127\n"
+                 "    for b in Int8(120)..top { n += 1 }\n    for i in 5..4 { n += 100 }\n"
+                 "    for i in 5..<5 { n += 100 }\n    return total + n * 1000\n}\n") ==
+          6 + (0 + 1 + 2 + 4 + 5) * 10 + 8000);
+    // The loop reads its array once, so appending in the body does not extend it.
+    CHECK(result("fun main(): Int {\n    var a = [1, 2]\n    var n = 0\n"
+                 "    for x in a {\n        a.append(x)\n        n += 1\n    }\n    return n * 10 + a.count\n}\n") == 24);
+    // Elements appended through fields, nested arrays and `mut fun` receivers.
+    CHECK(result("struct S(var items: [Int]) {\n    mut fun add(x: Int) { items.append(x) }\n}\n"
+                 "fun main(): Int {\n    var s = S([])\n    s.add(4)\n    s.items.append(5)\n"
+                 "    var grid: [[Int]] = [[], [1]]\n    grid[0].append(7)\n    grid[0].append(8)\n"
+                 "    return s.items[0] + s.items[1] * 10 + grid[0][1] * 100 + grid[0].count * 1000\n}\n") ==
+          4 + 50 + 800 + 2000);
+    // The receiver's index runs before the argument.
+    Frontend order;
+    const auto ordered = order.run("fun at(): Int {\n    print(\"index\")\n    return 0\n}\n"
+                                   "fun value(): Int {\n    print(\"value\")\n    return 7\n}\n"
+                                   "fun main(): Int {\n    var a: [[Int]] = [[]]\n    a[at()].append(value())\n"
+                                   "    return a[0][0]\n}\n");
+    CHECK(!ordered.trapped && ordered.value == 7 && ordered.output == "index\nvalue\n");
+}
+
 int main() {
     target_program();
     control_flow();
@@ -760,6 +797,7 @@ int main() {
     optionals();
     optional_chaining();
     arrays();
+    growth_and_loops();
     rejected_files();
     long_trees();
     std::println("mir tests passed");

@@ -115,7 +115,6 @@ fun other(): Int = 1
 fun main(): Int {
     let c = 'x'
     let r = 1 << 2
-    for i in 0..3 {}
     defer {}
     let m: Int = match 1 { _ -> 2 }
     let u: Int = unsafe { 3 }
@@ -125,7 +124,7 @@ fun main(): Int {
 }
 )", {DiagCode::UnsupportedCodegen, DiagCode::UnsupportedCodegen, DiagCode::UnsupportedCodegen,
      DiagCode::UnsupportedCodegen, DiagCode::UnsupportedCodegen, DiagCode::UnsupportedCodegen,
-     DiagCode::UnsupportedCodegen, DiagCode::UnsupportedCodegen});
+     DiagCode::UnsupportedCodegen});
 }
 
 void stored_values() {

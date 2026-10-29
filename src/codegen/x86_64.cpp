@@ -287,6 +287,7 @@ public:
         raw({0xC3}, "ret");
     }
     void ud2() { raw({0x0F, 0x0B}, "ud2"); }
+    void rep_movsb() { raw({0xF3, 0xA4}, "rep movsb"); }
 
     // ------------------------------------------------------------ runtime
 
@@ -728,6 +729,7 @@ private:
         if (inst.op == Op::None) return zero(slot(inst.dst), size(fun_->regs[inst.dst.id]));
         if (inst.op == Op::Array) return array(inst);
         if (inst.op == Op::Load || inst.op == Op::Store) return element(inst);
+        if (inst.op == Op::Reserve) return reserve(inst);
         const Type type = fun_->regs[inst.dst.id];
         if (mir::is_aggregate(type)) {
             PHS_ASSERT(inst.op == Op::Copy);
@@ -782,7 +784,7 @@ private:
             }
             case Op::Call: case Op::Str: case Op::Print: case Op::Make: case Op::Field: case Op::With:
             case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None:
-            case Op::Array: case Op::Load: case Op::Store: break;
+            case Op::Array: case Op::Load: case Op::Store: case Op::Reserve: break;
         }
         as_.store(slot(inst.dst), RAX);
     }
@@ -907,6 +909,41 @@ private:
         as_.mov_imm(RAX, inst.args.size());
         as_.store(slot(inst.dst) + static_cast<i32>(layout.offsets[1]), RAX);
         as_.store(slot(inst.dst) + static_cast<i32>(layout.offsets[2]), RAX);
+    }
+
+    // An array with room for one more element. A full one gets new memory
+    // from _P$alloc with twice its capacity, or 4 when that was 0, and its
+    // elements are copied there; the old memory is never freed.
+    void reserve(const mir::Inst& inst) {
+        const Type type = fun_->regs[inst.a.id];
+        const auto& layout = program_.layouts[mir::layout_index(type)];
+        if (inst.dst != inst.a) copy(RBP, slot(inst.dst), RBP, slot(inst.a), layout.size);
+        const i32 data = slot(inst.dst) + static_cast<i32>(layout.offsets[0]);
+        const i32 count = slot(inst.dst) + static_cast<i32>(layout.offsets[1]);
+        const i32 capacity = slot(inst.dst) + static_cast<i32>(layout.offsets[2]);
+        const u32 stride = size(layout.element);
+        const auto done = as_.label(), doubled = as_.label();
+        as_.load(RAX, count);
+        as_.load(RCX, capacity);
+        as_.alu(0x39, "cmp", RAX, RCX);
+        as_.jcc(L, done);
+        as_.alu(0x01, "add", RCX, RCX);
+        as_.jcc(NE, doubled);
+        as_.mov_imm(RCX, 4);
+        as_.place(doubled);
+        as_.store(capacity, RCX);
+        as_.mov_imm(RAX, stride);
+        as_.imul(RCX, RAX);
+        as_.mov(RDI, RCX);
+        as_.call(runtime(kAlloc));
+        as_.load(RSI, data);
+        as_.store(data, RAX);
+        as_.mov(RDI, RAX);
+        as_.load(RCX, count);
+        as_.mov_imm(RAX, stride);
+        as_.imul(RCX, RAX);
+        as_.rep_movsb();
+        as_.place(done);
     }
 
     // Load and Store: the element's address, data + index * size, in rdx.
@@ -1108,7 +1145,7 @@ public:
             return std::ranges::any_of(fun.blocks, [&](const mir::Block& block) {
                 return std::ranges::any_of(block.insts, [&](const mir::Inst& inst) {
                     return (inst.op == Op::Closure && program_.functions[inst.callee].environment.has_value()) ||
-                           (inst.op == Op::Array && !inst.args.empty());
+                           (inst.op == Op::Array && !inst.args.empty()) || inst.op == Op::Reserve;
                 });
             });
         });

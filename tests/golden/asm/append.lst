@@ -1,0 +1,65 @@
+_P4main:  ; main
+    0000  55                     push rbp
+    0001  4889e5                 mov rbp, rsp
+    0004  4881ec60000000         sub rsp, 96
+  bb0:  ; .L0
+    000b  48c7c000000000         mov rax, 0
+    0012  488985e8ffffff         mov qword [rbp-24], rax
+    0019  488985f0ffffff         mov qword [rbp-16], rax
+    0020  488985f8ffffff         mov qword [rbp-8], rax
+    0027  488b85e8ffffff         mov rax, qword [rbp-24]
+    002e  488985d0ffffff         mov qword [rbp-48], rax
+    0035  488b85f0ffffff         mov rax, qword [rbp-16]
+    003c  488985d8ffffff         mov qword [rbp-40], rax
+    0043  488b85f8ffffff         mov rax, qword [rbp-8]
+    004a  488985e0ffffff         mov qword [rbp-32], rax
+    0051  48c7c001000000         mov rax, 1
+    0058  488985c8ffffff         mov qword [rbp-56], rax
+    005f  488b85d8ffffff         mov rax, qword [rbp-40]
+    0066  488b8de0ffffff         mov rcx, qword [rbp-32]
+    006d  4839c8                 cmp rax, rcx
+    0070  0f8c4f000000           jl .L3
+    0076  4801c9                 add rcx, rcx
+    0079  0f8507000000           jne .L4
+    007f  48c7c104000000         mov rcx, 4
+    0086  48898de0ffffff         mov qword [rbp-32], rcx
+    008d  48c7c001000000         mov rax, 1
+    0094  480fafc8               imul rcx, rax
+    0098  4889cf                 mov rdi, rcx
+    009b  e800000000             call _P$alloc
+    00a0  488bb5d0ffffff         mov rsi, qword [rbp-48]
+    00a7  488985d0ffffff         mov qword [rbp-48], rax
+    00ae  4889c7                 mov rdi, rax
+    00b1  488b8dd8ffffff         mov rcx, qword [rbp-40]
+    00b8  48c7c001000000         mov rax, 1
+    00bf  480fafc8               imul rcx, rax
+    00c3  f3a4                   rep movsb
+    00c5  488b85d8ffffff         mov rax, qword [rbp-40]
+    00cc  488985c0ffffff         mov qword [rbp-64], rax
+    00d3  48c7c001000000         mov rax, 1
+    00da  488985a8ffffff         mov qword [rbp-88], rax
+    00e1  488b85c0ffffff         mov rax, qword [rbp-64]
+    00e8  488b8da8ffffff         mov rcx, qword [rbp-88]
+    00ef  4801c8                 add rax, rcx
+    00f2  0f8063000000           jo .L1
+    00f8  488985b8ffffff         mov qword [rbp-72], rax
+    00ff  488b85b8ffffff         mov rax, qword [rbp-72]
+    0106  488985d8ffffff         mov qword [rbp-40], rax
+    010d  488b85c0ffffff         mov rax, qword [rbp-64]
+    0114  488985b0ffffff         mov qword [rbp-80], rax
+    011b  488b85b0ffffff         mov rax, qword [rbp-80]
+    0122  48c7c101000000         mov rcx, 1
+    0129  480fafc1               imul rax, rcx
+    012d  488b95d0ffffff         mov rdx, qword [rbp-48]
+    0134  4801c2                 add rdx, rax
+    0137  488b85c8ffffff         mov rax, qword [rbp-56]
+    013e  888200000000           mov byte [rdx], al
+    0144  488b85d8ffffff         mov rax, qword [rbp-40]
+    014b  488985a0ffffff         mov qword [rbp-96], rax
+    0152  488b85a0ffffff         mov rax, qword [rbp-96]
+    0159  c9                     leave
+    015a  c3                     ret
+  .L1:  ; trap: overflow
+    015b  bf01000000             mov edi, 1
+    0160  e800000000             call __phantasos_trap
+    0165  0f0b                   ud2

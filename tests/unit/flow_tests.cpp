@@ -553,7 +553,7 @@ fun initialized(): Int {
     }
     return y
 }
-)");
+)", {DiagCode::UnreachableArm});
 }
 
 void long_trees() {

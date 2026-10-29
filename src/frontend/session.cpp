@@ -16,6 +16,8 @@
 #include "frontend/session.hpp"
 
 #include "codegen/gate.hpp"
+#include "sema/exhaustive.hpp"
+#include "sema/size.hpp"
 #include "sema/flow.hpp"
 #include "sema/validate.hpp"
 #include "syntax/lexer.hpp"
@@ -44,8 +46,11 @@ CheckResult FrontendSession::check(FileId file) {
             if (!diag_.has_errors(file)) state.resolution = resolve_file(*syntax, names_, diag_);
             if (!diag_.has_errors(file))
                 state.scalar_types = check_scalar_types(*syntax, *state.resolution, names_, diag_);
-            if (!diag_.has_errors(file) && state.scalar_types)
+            if (!diag_.has_errors(file) && state.scalar_types) {
+                check_sizes(*state.resolution, *state.scalar_types, names_, diag_);
+                check_matches(*state.resolution, *state.scalar_types, names_, diag_);
                 state.flow = check_flow(*syntax, *state.resolution, *state.scalar_types, names_, diag_);
+            }
         }
     }
     return {syntax, state.resolution ? &*state.resolution : nullptr,

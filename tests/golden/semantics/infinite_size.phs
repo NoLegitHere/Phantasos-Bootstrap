@@ -1,0 +1,50 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// A struct or enum that holds itself inline, through fields, payloads,
+// tuples or optionals, has no finite size (3.37). Arrays, classes and
+// function values hold their values elsewhere.
+struct Node(value: Int, next: Link)
+struct Link(node: Node)
+struct Chain(value: Int, next: Chain?)
+struct Paired(inner: (Paired, Int))
+
+struct Box<T>(value: T)
+struct Looped<T>(inner: Box<Looped<T>>)
+struct Grow<T>(inner: Grow<Box<T>>)
+
+struct Body {
+    var me: Body? = none
+}
+
+enum Expr {
+    num(Int)
+    add(Expr, Expr)
+}
+
+// A struct that holds one of these without being on its cycle is not
+// reported again.
+struct Uses(node: Node)
+
+// These are fine.
+struct Nested(a: Box<Box<Int>>, kids: [Nested], f: fun(Nested) -> Int)
+class Shape(let next: Shape?)
+struct Holder(shape: Shape)
+enum Tree {
+    leaf(Int)
+    node(kids: [Tree])
+}
+struct Wrapper(inner: Box<Wrapper2>)
+struct Wrapper2(items: [Wrapper])

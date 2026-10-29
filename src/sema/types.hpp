@@ -274,6 +274,9 @@ public:
         const auto it = pattern_cases_.find(pattern);
         return it == pattern_cases_.end() ? BindingId{} : it->second;
     }
+    // The `match` expressions whose patterns were typed against a known
+    // scrutinee, in the order they were typed.
+    std::span<const ast::MatchExpr* const> matches() const { return matches_; }
     const ExpandedType* alias(BindingId id) const { return aliases_.alias(id); }
     const CheckedHierarchy* hierarchy(BindingId id) const {
         const auto it = hierarchies_.find(id.value);
@@ -307,6 +310,7 @@ private:
     NodeMap<const ast::Expr*, CheckedMember> members_;
     std::unordered_map<const ast::Expr*, ArrayMember> array_members_;
     std::unordered_map<const ast::CasePat*, BindingId> pattern_cases_;
+    std::vector<const ast::MatchExpr*> matches_;
     IdMap<CheckedHierarchy> hierarchies_;
     AliasExpansion aliases_;
     TypeTable types_;

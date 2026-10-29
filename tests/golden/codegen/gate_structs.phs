@@ -19,7 +19,7 @@
 
 struct Empty()
 
-struct Node(value: Int, next: Link)
+struct Node(value: Int, next: [Link])
 struct Link(node: Node)
 
 struct Defaulted(x: Int = 1)

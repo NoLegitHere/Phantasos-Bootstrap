@@ -23,7 +23,7 @@ struct Point(var x: Int, let y: Int) {
 }
 interface Shape { fun area(): Int }
 fun area<S: Shape>(s: S?): Int? = s?.area()
-struct Node(let value: Int, let next: Node?)
+struct Node(let value: Int, let next: [Node]?)
 
 fun unit(x: Unit?) {}
 

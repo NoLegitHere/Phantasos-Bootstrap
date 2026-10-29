@@ -16,7 +16,7 @@
 // Tuples outside the subset: comparisons, optional tuples, Unit or rejected
 // elements, and structs that contain themselves through a tuple element.
 
-struct Looped(inner: (Looped, Int))
+struct Looped(inner: ([Looped], Int))
 
 fun real(t: (Float64, Int)): Int = t.1
 

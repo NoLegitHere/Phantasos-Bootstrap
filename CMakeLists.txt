@@ -57,6 +57,8 @@ add_library(phantasos_frontend STATIC
     src/sema/aliases.cpp
     src/sema/type_table.cpp
     src/sema/flow.cpp
+    src/sema/exhaustive.cpp
+    src/sema/size.cpp
     src/codegen/gate.cpp
     src/codegen/lower.cpp
     src/codegen/mir.cpp

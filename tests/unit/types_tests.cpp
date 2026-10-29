@@ -587,7 +587,7 @@ enum Outer {
 }
 fun eval(o: Outer, n: Int?): Int {
     let first: Int = match o {
-        .wrap(.a(small)) -> 1
+        .wrap(.a(small)) if small > 0 -> 1
         Outer.pair(flag, count) -> 2
         .text(words) | .text(words) -> 3
         .wrap(Inner.b) -> 4
@@ -645,6 +645,38 @@ fun bad(t: Tok, i: Int) {
     CHECK(errors.binding("x") == Type::Error);
 }
 
+// Coverage stays linear in the arms of wide matches, rejects one too large
+// to check, and the size check walks long chains of types once.
+void wide_matches_and_long_chains() {
+    constexpr int kWide = 10000;
+    std::string wide = "enum E {\n";
+    for (int i = 0; i < kWide; ++i) wide += "    c" + std::to_string(i) + "(Int)\n";
+    wide += "}\nfun f(e: E, n: Int): Int {\n    let a = match e {\n";
+    for (int i = 0; i < kWide; ++i) wide += "        .c" + std::to_string(i) + "(x) -> x\n";
+    wide += "    }\n    let b = match n {\n";
+    for (int i = 0; i < kWide; ++i) wide += "        " + std::to_string(i) + " -> 1\n";
+    wide += "        _ -> 0\n    }\n    return a + b\n}\n";
+    Frontend f;
+    f.check(wide, {}, false);
+
+    // Each case meets every guarded `_` arm before it.
+    std::string complex = "enum E {\n";
+    for (int i = 0; i < 2000; ++i) complex += "    c" + std::to_string(i) + "(Int)\n";
+    complex += "}\nfun f(e: E, g: Bool): Int {\n    return match e {\n";
+    for (int i = 0; i < 1100; ++i) complex += "        _ if g -> 0\n";
+    for (int i = 0; i < 2000; ++i) complex += "        .c" + std::to_string(i) + "(x) -> x\n";
+    complex += "    }\n}\n";
+    Frontend too_complex;
+    too_complex.check(complex, {DiagCode::MatchTooComplex}, false);
+
+    // Only the two structs on the cycle at the end are reported.
+    std::string chain;
+    for (int i = 0; i < kWide - 1; ++i) chain += "struct S" + std::to_string(i) + "(a: S" + std::to_string(i + 1) + ", b: Int)\n";
+    chain += "struct S" + std::to_string(kWide - 1) + "(a: S" + std::to_string(kWide - 2) + "?)\n";
+    Frontend sizes;
+    sizes.check(chain, {DiagCode::InfiniteSize, DiagCode::InfiniteSize}, false);
+}
+
 int main() {
     retained_inference_and_context();
     diagnostics_and_suppression();
@@ -660,4 +692,5 @@ int main() {
     optionals();
     enum_cases();
     match_patterns();
+    wide_matches_and_long_chains();
 }

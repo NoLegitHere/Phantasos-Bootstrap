@@ -99,7 +99,7 @@ foundation. Complete.
   exhaustiveness checks, and generic enums such as `Result<T, E>`.
   - [x] Enum cases in `check`.
   - [x] `match` patterns in `check`, with payload bindings that borrow.
-  - [ ] Exhaustiveness checks, and enums that hold themselves.
+  - [x] Exhaustiveness checks, and enums that hold themselves.
   - [ ] Enum values in code generation.
   - [ ] `match` in code generation.
   - [ ] Generic enums and enum methods.

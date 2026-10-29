@@ -392,6 +392,7 @@ public:
         result.members_ = std::move(members_);
         result.array_members_ = std::move(array_members_);
         result.pattern_cases_ = std::move(pattern_cases_);
+        result.matches_ = std::move(matches_);
         result.hierarchies_ = std::move(hierarchies_);
         result.aliases_ = std::move(aliases_);
         result.types_ = std::move(types_);
@@ -4455,6 +4456,7 @@ private:
         Value subject = value(match.scrutinee);
         if (subject.literal != Literal::None) subject = materialize(expressions_.at(match.scrutinee), default_type(subject));
         if (unavailable(subject) || subject.type == Type::Never) return;
+        matches_.push_back(&match);
         for (const auto& arm : match.arms) {
             // Alternatives bind the same names, which must have the same types.
             FlatMap<u32, Type> names;
@@ -5324,6 +5326,7 @@ private:
     FlatSet<const Expr*> clone_callees_; // `x.clone` callees of calls without arguments
     FlatSet<const Expr*> loop_ranges_;   // ranges that are the subject of a `for` loop
     FlatSet<const MatchExpr*> typed_matches_;
+    std::vector<const MatchExpr*> matches_;  // those whose patterns were typed
     std::unordered_map<const Pattern*, Type> pattern_types_;  // binding patterns
     std::unordered_map<const CasePat*, BindingId> pattern_cases_;
     std::unordered_map<const Expr*, ArrayMember> array_members_;

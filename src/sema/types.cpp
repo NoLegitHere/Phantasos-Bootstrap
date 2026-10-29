@@ -2192,8 +2192,9 @@ private:
                kind == BindingKind::Parameter || kind == BindingKind::Pattern || kind == BindingKind::BuiltinValue;
     }
     // `a.count`, `a.isEmpty`, and `a.append` and `a.removeLast` as callees (3.33).
-    std::optional<BindingId> array_member(const MemberExpr& member, CheckedMember record) {
-        const auto text = names_.str(member.name.sym);
+    // `a?.count` and `a?.append(x)` reach them through `?.` too (3.6).
+    std::optional<BindingId> array_member(const Expr& member, Name name, CheckedMember record) {
+        const auto text = names_.str(name.sym);
         const bool callee = direct_callees_.contains(&member);
         std::optional<ArrayMember> kind;
         if (text == "count") kind = ArrayMember::Count;
@@ -2202,17 +2203,22 @@ private:
         else if (text == "removeLast") kind = ArrayMember::RemoveLast;
         const bool method = kind == ArrayMember::Append || kind == ArrayMember::RemoveLast;
         if (kind && method && !callee) {
-            diag_.error(DiagCode::UnknownMember, member.name.span, "array method '{}' can only be called", text);
+            diag_.error(DiagCode::UnknownMember, name.span, "array method '{}' can only be called", text);
             record.state = ResolutionState::Unresolved;
         } else if (kind) array_members_[&member] = *kind;
         else if (!clone_callees_.contains(&member)) {
             // A built-in `a.clone()` is checked with its call (3.31).
-            diag_.error(DiagCode::UnknownMember, member.name.span, "type '{}' has no member '{}'",
-                        scalar_type_name(value(member.base).type), text);
+            diag_.error(DiagCode::UnknownMember, name.span, "type '{}' has no member '{}'",
+                        scalar_type_name(member_array(&member)), text);
             record.state = ResolutionState::Unresolved;
         }
         members_[&member] = std::move(record);
         return std::nullopt;
+    }
+    // The array whose built-in member `expr` is: inside the optional for `a?.count`.
+    Type member_array(const Expr* expr) const {
+        if (const auto* member = as<MemberExpr>(expr)) return value(member->base).type;
+        return value(cast<OptMemberExpr>(expr)->base).type.element();
     }
     std::optional<BindingId> prepare_reference(const Expr* expr) {
         const auto* name_expr = as<NameExpr>(expr);
@@ -2245,6 +2251,8 @@ private:
                 record.state = ResolutionState::Unresolved;
             }
             const Type inner = base.type.optional_depth ? base.type.element() : Type{};
+            if (record.state != ResolutionState::Unresolved && inner.kind == Type::Array && !inner.optional_depth)
+                return array_member(*chained, chained->name, std::move(record));
             if (record.state != ResolutionState::Unresolved) {
                 if (inner.kind == Type::Nominal && !inner.optional_depth) {
                     record.owner = types_.descriptor(inner)->declaration;
@@ -2275,7 +2283,7 @@ private:
             if (!record.type_receiver && base.literal == Literal::Array && known(default_type(base)))
                 base = materialize(expressions_.at(member->base), default_type(base));
             if (!record.type_receiver && base.type.kind == Type::Array && !base.type.optional_depth && base.literal == Literal::None)
-                return array_member(*member, std::move(record));
+                return array_member(*member, member->name, std::move(record));
             if (base.type.kind == Type::Nominal && !base.type.optional_depth) record.receiver_type = base.type;
             else if (record.type_receiver) record.receiver_type = type.scalar;
             else if (symbolic(base.type) && !base.type.optional_depth) record.receiver_type = base.type;
@@ -3024,7 +3032,7 @@ private:
         const Expr* receiver = unparen(call.callee);
         if (const auto array = array_members_.find(receiver); array != array_members_.end()) {
             if (array->second != ArrayMember::Append || call.args.size() != 1) return {Expected::Unmatched};
-            return {Expected::Known, types_.descriptor(value(cast<MemberExpr>(receiver)->base).type)->element};
+            return {Expected::Known, types_.descriptor(member_array(receiver))->element};
         }
         const auto named = callees(receiver);
         std::vector<BindingId> ids(named.begin(), named.end());
@@ -4059,15 +4067,17 @@ private:
     // `a.append(x)` adds x, of the element type, at the end; `a.removeLast()`
     // removes the last element and gives it, or `none` when a is empty (3.33).
     std::optional<Value> prepare_array_method(const CallExpr& expr) {
-        const auto* member = as<MemberExpr>(unparen(expr.callee));
-        if (!member) return std::nullopt;
-        const auto found = array_members_.find(member);
-        if (found == array_members_.end()) return std::nullopt;
+        const Expr* callee = unparen(expr.callee);
+        const auto found = array_members_.find(callee);
+        // `a.count()` calls an Int, which the ordinary path reports.
+        if (found == array_members_.end() || (found->second != ArrayMember::Append && found->second != ArrayMember::RemoveLast))
+            return std::nullopt;
         auto& record = calls_[&expr];
         record.kind = CallKind::Array;
         record.array = found->second;
-        record.receiver = member->base;
-        const Type element = types_.descriptor(value(member->base).type)->element;
+        const auto* chained = as<OptMemberExpr>(callee);
+        record.receiver = chained ? chained->base : cast<MemberExpr>(callee)->base;
+        const Type element = types_.descriptor(member_array(callee))->element;
         const bool append = found->second == ArrayMember::Append;
         const bool positional = std::ranges::all_of(expr.args, [](const Arg& arg) { return arg.label.sym.empty(); });
         if (!positional || expr.args.size() != (append ? 1u : 0u)) {
@@ -4079,14 +4089,18 @@ private:
             return Value{Type::Error};
         }
         record.state = CallState::Resolved;
-        if (!append) return Value{element.optional()};
-        record.parameters = {0};
-        record.parameter_types = {element};
-        if (require(expr.args[0].value, element, expr.args[0].value->span).type == Type::Error) {
-            record.state = CallState::Error;
-            return Value{Type::Error};
+        const Type result = append ? Type{Type::Unit} : element.optional();
+        if (append) {
+            record.parameters = {0};
+            record.parameter_types = {element};
+            if (require(expr.args[0].value, element, expr.args[0].value->span).type == Type::Error) {
+                record.state = CallState::Error;
+                return Value{Type::Error};
+            }
         }
-        return Value{Type::Unit};
+        if (!chained) return Value{result};
+        record.result = result;
+        return chained_result({result});
     }
     enum class Expansion : u8 { Yes, No, Deferred, Failed };
     // Strings, Copy scalars, function values and payload-free enums clone, as
@@ -4696,6 +4710,7 @@ private:
                 if (const auto array = array_members_.find(expr); array != array_members_.end()) {
                     if (array->second == ArrayMember::Count) node.value = {Type::Int};
                     else if (array->second == ArrayMember::IsEmpty) node.value = {Type::Bool};
+                    if (expr->kind == ExprKind::OptMember) node.value = chained_result(node.value);
                     break;
                 }
                 const auto it = members_.find(expr);

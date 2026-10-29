@@ -373,6 +373,10 @@ let bytes: [UInt8] = [1, 2]
 let count = bytes.count
 let empty = bytes.isEmpty
 let literalCount = [1, 2, 3].count
+let maybe: [UInt8]? = [1]
+let chainedCount = maybe?.count
+let chainedEmpty = maybe?.isEmpty
+fun pop(values: inout [Int8]?): Int8? = values?.removeLast()
 fun last(values: inout [Int8]): Int8? = values.removeLast()
 fun grow(values: inout [Int8]) { values.append(1) }
 fun push(values: inout [[Int8]]) { values.append([]) }
@@ -384,6 +388,7 @@ fun loops(names: [String], limit: UInt8) {
 }
 )");
     CHECK(f.value("count") == Type::Int && f.value("empty") == Type::Bool && f.value("literalCount") == Type::Int);
+    CHECK(f.value("chainedCount") == Type{Type::Int}.optional() && f.value("chainedEmpty") == Type{Type::Bool}.optional());
     CHECK(f.result.scalar_types->binding(f.id("name", BindingKind::Local)) == Type::String);
     CHECK(f.result.scalar_types->binding(f.id("byte", BindingKind::Local)) == Type::UInt8);
     CHECK(f.result.scalar_types->binding(f.id("small", BindingKind::Local)) == Type::UInt8);
@@ -397,6 +402,12 @@ fun loops(names: [String], limit: UInt8) {
         {"fun f(a: inout [Int]) { a.append(value: 1) }", DiagCode::NoMatchingCall},
         {"fun f(a: inout [Int]) { let x = a.removeLast(1) }", DiagCode::NoMatchingCall},
         {"let a = [1]\nlet bad = a.clone()", DiagCode::UnknownMember},
+        {"let a = [1]\nlet bad = a.count()", DiagCode::NotCallable},
+        {"let a: [Int]? = [1]\nlet bad = a?.size", DiagCode::UnknownMember},
+        {"fun f(a: inout [Int8]?) { a?.append(300) }", DiagCode::ScalarLiteralRange},
+        {"fun f() { var a = [1]\n a.count = 2 }", DiagCode::ImmutableAssignment},
+        {"fun set(x: inout Bool) {}\nfun f() { var a = [1]\n set(a.isEmpty) }", DiagCode::ImmutableAssignment},
+        {"fun f(a: [Int]?) { a?.append(1) }", DiagCode::ImmutableAssignment},
         {"fun f(n: Int) { for i in n {} }", DiagCode::NotIterable},
         {"fun f(a: [Int]?) { for i in a {} }", DiagCode::NotIterable},
         {"fun f() { for i in 1 {} }", DiagCode::NotIterable},

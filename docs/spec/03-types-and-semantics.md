@@ -1515,7 +1515,10 @@ as for a `mut fun` receiver (3.24): a `var` local, an `inout` parameter, or
 a `var` field of one. Calling them on a `let` array, a borrowed parameter or
 a temporary is `E0502`. They can only be called; `a.append` as a value, or
 any other member of an array, is `E0450`. A wrong number of arguments is
-`E0411`.
+`E0411`. `count` and `isEmpty` are computed, so assigning to them or passing
+them to an `inout` parameter is `E0502`, and calling them is `E0410`. On an
+optional array, `a?.count` and `a?.append(x)` work as `?.` does for fields
+and methods (3.6).
 
 `for x in a` runs its body once per element of the array `a`, in order,
 with `x` bound to that element. `x` is immutable and borrows the element,

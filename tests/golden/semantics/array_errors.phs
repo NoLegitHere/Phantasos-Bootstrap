@@ -29,6 +29,8 @@ fun valid(values: inout [Int8], limit: UInt8): Int {
 
 fun errors(values: [Int], n: Int, maybe: [Int]?) {
     let size = values.size
+    let called = values.count()
+    let chained = maybe?.size
     let method = values.append
     var copy = [1]
     copy.append("one")

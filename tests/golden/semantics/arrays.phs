@@ -29,6 +29,13 @@ fun mutability(values: [Int], bag: Bag) {
     [1].append(2)
     var owned = Bag([])
     owned.items.append("fine")
+    owned.items.count = 0
+}
+
+fun chained(maybe: [Int]?, held: inout [Int]?): Int? {
+    maybe?.append(1)
+    held?.append(1)
+    return held?.removeLast() ?? maybe?.count
 }
 
 fun elements(words: [String]) {

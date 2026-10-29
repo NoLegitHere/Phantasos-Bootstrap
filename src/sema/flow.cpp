@@ -471,6 +471,8 @@ private:
         for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
             const auto* member = as<MemberExpr>(*it);
             if (!member) continue;
+            // A built-in array property is computed, never stored (3.33).
+            if (types_.array_member(member)) return {Access::Temporary, "a temporary value"};
             const auto* record = types_.member(member);
             if (!record || record->state != ResolutionState::Resolved || record->candidates.size() != 1 ||
                 resolution_.binding(record->candidates.front()).kind != BindingKind::Field)
@@ -498,6 +500,10 @@ private:
         const auto* tuple = as<TupleFieldExpr>(inner);
         const bool element = inner->kind == ExprKind::Index, unwrapped = inner->kind == ExprKind::Unwrap;
         if (!member && !element && !unwrapped && !tuple && inner->kind != ExprKind::SelfValue) return;
+        if (member && types_.array_member(member)) {
+            restricted(target.span, std::format("cannot assign to '{}', which an array computes", names_.str(member->name.sym)), {});
+            return;
+        }
         const Place found = place(inner);
         if (found.access == Access::Unknown || found.access == Access::Mutable) return;
         if (element || unwrapped || tuple) {

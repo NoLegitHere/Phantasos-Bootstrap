@@ -1640,10 +1640,11 @@ and `.pair(_, false)` together cover `.pair`.
   an optional of such a type. So an enum without cases is covered by a
   `match` without arms. Generic instances count as having values.
 
-An arm whose values are all matched by the arms before it never runs, and
-is warned about (`E0408`). Matches with patterns of generic enums are not
-checked yet. A `match` too large to check, needing more than two million
-row copies or a walk deeper than 512 columns, is `E0409`; split it into smaller ones.
+An arm whose values are all matched by the arms before it, or that only
+matches cases no value has, never runs, and is warned about (`E0408`).
+Matches with patterns of generic enums are not checked yet. A `match` too
+large to check, needing more than two million row copies or a walk deeper
+than 512 columns, is `E0409`; split it into smaller ones.
 
 ## 3.37 Finite size [Core]
 

@@ -1,33 +1,36 @@
-match_exhaustive.phs:69:18: error[E0407]: 'match' does not cover every 'Tok': '.plus' is not matched; add an arm for it or a '_' arm
-   69 |     return match t {
+match_exhaustive.phs:74:18: error[E0407]: 'match' does not cover every 'Tok': '.plus' is not matched; add an arm for it or a '_' arm
+   74 |     return match t {
       |                  ^
-match_exhaustive.phs:76:18: error[E0407]: 'match' does not cover every 'Tok': '.wrap(.pair(_, _))' is not matched; add an arm for it or a '_' arm
-   76 |     return match t {
+match_exhaustive.phs:81:18: error[E0407]: 'match' does not cover every 'Tok': '.wrap(.pair(_, _))' is not matched; add an arm for it or a '_' arm
+   81 |     return match t {
       |                  ^
-match_exhaustive.phs:84:18: error[E0407]: 'match' does not cover every 'Tok': '.pair(_, false)' is not matched; add an arm for it or a '_' arm
-   84 |     return match t {
+match_exhaustive.phs:89:18: error[E0407]: 'match' does not cover every 'Tok': '.pair(_, false)' is not matched; add an arm for it or a '_' arm
+   89 |     return match t {
       |                  ^
-match_exhaustive.phs:94:18: error[E0407]: 'match' does not cover every 'Bool': 'false' is not matched; add an arm for it or a '_' arm
-   94 |     return match x { true -> 1 }
+match_exhaustive.phs:99:18: error[E0407]: 'match' does not cover every 'Bool': 'false' is not matched; add an arm for it or a '_' arm
+   99 |     return match x { true -> 1 }
       |                  ^
-match_exhaustive.phs:98:18: error[E0407]: 'match' does not cover every 'Int'; add a '_' arm
-   98 |     return match x { 0 -> 1, -1 -> 2 }
+match_exhaustive.phs:103:18: error[E0407]: 'match' does not cover every 'Int'; add a '_' arm
+  103 |     return match x { 0 -> 1, -1 -> 2 }
       |                  ^
-match_exhaustive.phs:102:11: error[E0407]: 'match' does not cover every 'String'; add a '_' arm
-  102 |     match s {
+match_exhaustive.phs:107:11: error[E0407]: 'match' does not cover every 'String'; add a '_' arm
+  107 |     match s {
       |           ^
-match_exhaustive.phs:108:18: error[E0407]: 'match' does not cover every 'Int?'; add a '_' arm
-  108 |     return match x { none -> 0 }
+match_exhaustive.phs:113:18: error[E0407]: 'match' does not cover every 'Int?'; add a '_' arm
+  113 |     return match x { none -> 0 }
       |                  ^
-match_exhaustive.phs:114:9: warning[E0408]: this arm never runs: the arms before it match every value it matches
-  114 |         0 -> 2
+match_exhaustive.phs:119:9: warning[E0408]: this arm never runs: no value it matches gets past the arms before it
+  119 |         0 -> 2
       |         ^
-match_exhaustive.phs:120:9: warning[E0408]: this arm never runs: the arms before it match every value it matches
-  120 |         .plus -> 3
+match_exhaustive.phs:125:9: warning[E0408]: this arm never runs: no value it matches gets past the arms before it
+  125 |         .plus -> 3
       |         ^^^^^
-match_exhaustive.phs:124:9: warning[E0408]: this arm never runs: the arms before it match every value it matches
-  124 |         1 -> 2
+match_exhaustive.phs:129:9: warning[E0408]: this arm never runs: no value it matches gets past the arms before it
+  129 |         1 -> 2
       |         ^
-match_exhaustive.phs:131:18: error[E0407]: 'match' does not cover every 'Partial?': '.some(_)' is not matched; add an arm for it or a '_' arm
-  131 |     return match x { none -> 0 }
+match_exhaustive.phs:136:18: error[E0407]: 'match' does not cover every 'Partial?': '.some(_)' is not matched; add an arm for it or a '_' arm
+  136 |     return match x { none -> 0 }
       |                  ^
+match_exhaustive.phs:142:9: warning[E0408]: this arm never runs: no value it matches gets past the arms before it
+  142 |         .dead(_) if false -> 0
+      |         ^^^^^^^^

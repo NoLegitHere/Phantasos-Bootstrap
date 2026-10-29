@@ -22,6 +22,7 @@
 #include <ranges>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace phs {
@@ -85,7 +86,7 @@ public:
         for (usize i = 0; i < match.arms.size(); ++i)
             if (!reached_[i])
                 diag_.warning(DiagCode::UnreachableArm, match.arms[i].pattern->span,
-                              "this arm never runs: the arms before it match every value it matches");
+                              "this arm never runs: no value it matches gets past the arms before it");
         if (!missing) return;
         const std::string name = types_.type_name(type, resolution_, names_);
         if (missing->back() == "_")
@@ -314,10 +315,13 @@ private:
 
         const auto listed = constructors(type);
         const auto has = [&](u32 ctor) { return starts.contains(u64{Space::Case} << 32 | ctor); };
+        // A case no value has matches nothing, whatever its arms say.
+        const std::unordered_set<u32> possible(listed.ctors.begin(), listed.ctors.end());
         std::optional<Witness> missing;
         for (const u32 id : heads) {
             if (complex_) return std::nullopt;
             const Space& head = spaces_[id];
+            if (head.kind == Space::Case && listed.finite && !possible.contains(head.ctor)) continue;
             const auto parts = head.kind == Space::Case ? fields(head.ctor, type) : std::vector<Type>{};
             const auto& own = starts.at(u64{head.kind} << 32 | head.ctor);
             // Both lists are in row order; merge them to keep it.

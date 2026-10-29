@@ -74,16 +74,19 @@ private:
         std::vector<ScalarTypes::TypeArgument> substitution;
         for (usize i = 0; i < params.size() && i < arguments.size(); ++i) substitution.push_back({params[i], arguments[i]});
         std::vector<Part> out;
+        // Tuples can share parts, so each type is collected once.
+        std::unordered_set<usize> seen;
         const auto hold = [&](Type held, BindingId via) {
             std::vector<Type> work{substitution.empty() ? held : types_.substitute(held, substitution)};
             while (!work.empty()) {
                 // An optional holds its value inline, and a tuple its elements.
                 const Type next = work.back().scalar();
                 work.pop_back();
+                if ((next.kind != Type::Tuple && !declaration(next).valid()) || !seen.insert(next.detail).second) continue;
                 if (next.kind == Type::Tuple) {
                     const auto elements = types_.descriptor(next)->parameters;
                     work.insert(work.end(), elements.rbegin(), elements.rend());
-                } else if (declaration(next).valid()) out.push_back({next, via});
+                } else out.push_back({next, via});
             }
         };
         for (const BindingId member : resolution_.scopes()[resolution_.binding(id).members.value].bindings) {

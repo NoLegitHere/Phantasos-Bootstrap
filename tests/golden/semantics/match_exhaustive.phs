@@ -39,6 +39,11 @@ enum Partial {
     some(Int)
 }
 
+enum Dead {
+    dead(Never)
+    live
+}
+
 enum Opt<T> {
     some(T)
     nothing
@@ -129,4 +134,12 @@ fun unreachable(t: Tok, x: Int): Int {
 
 fun missingPresent(x: Partial?): Int {
     return match x { none -> 0 }
+}
+
+// An arm for a case no value has never runs, and does not need covering.
+fun impossible(x: Dead): Int {
+    return match x {
+        .dead(_) if false -> 0
+        .live -> 1
+    }
 }

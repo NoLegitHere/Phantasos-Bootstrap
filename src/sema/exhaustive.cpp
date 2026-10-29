@@ -311,7 +311,8 @@ private:
     }
 
     // Rows whose first pattern is an alternative stand for one row per alternative.
-    std::vector<Row> expand(std::vector<Row> rows) const {
+    // Each row it makes counts toward the work limit.
+    std::vector<Row> expand(std::vector<Row> rows) {
         if (std::ranges::none_of(rows, [&](const Row& row) { return spaces_[row.columns.back()].kind == Space::Or; })) return rows;
         std::vector<Row> out;
         for (Row& row : rows) {
@@ -322,6 +323,10 @@ private:
                 if (spaces_[next].kind == Space::Or) {
                     work.insert(work.end(), spaces_[next].parts.rbegin(), spaces_[next].parts.rend());
                     continue;
+                }
+                if (++work_ > kWork) {
+                    complex_ = true;
+                    return {};
                 }
                 out.push_back(row);
                 out.back().columns.back() = next;
@@ -346,6 +351,7 @@ private:
             return Witness{};
         }
         rows = expand(std::move(rows));
+        if (complex_) return std::nullopt;
         const Type type = types.back();
         types.pop_back();
 

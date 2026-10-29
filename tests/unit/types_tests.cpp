@@ -680,6 +680,22 @@ void wide_matches_and_long_chains() {
     Frontend too_complex;
     too_complex.check(complex, {DiagCode::MatchTooComplex}, false);
 
+    // Alternatives are counted as they are expanded.
+    std::string alternatives;
+    for (int i = 0; i < 1500; ++i) alternatives += i ? " | 0" : "0";
+    std::string pairs = "enum P {\n    pair(Int, Int)\n    other\n}\nfun f(p: P): Int {\n    return match p {\n        .pair(" +
+                        alternatives + ", " + alternatives + ") -> 1\n        _ -> 0\n    }\n}\n";
+    Frontend expanded;
+    expanded.check(pairs, {DiagCode::MatchTooComplex}, false);
+
+    // A generic struct's field reached through a long alias chain is
+    // substituted without recursion.
+    std::string aliases = "type T0 = Int\n";
+    for (int i = 1; i <= 10000; ++i) aliases += "type T" + std::to_string(i) + " = (T" + std::to_string(i - 1) + ", Int)\n";
+    aliases += "struct S<T>(value: T10000, t: T)\n";
+    Frontend chained;
+    chained.check(aliases, {}, false);
+
     // Matching a present value through many optional layers is too deep.
     std::string optional = "fun f(x: Bool";
     for (int i = 0; i < 1000; ++i) optional += "? ";

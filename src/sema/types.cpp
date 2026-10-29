@@ -2586,7 +2586,14 @@ private:
             else if (const auto* literal = as<LiteralPat>(pat)) literals.push_back(literal->literal);
             else bindings.push_back(pat);
         }
-        for (const Expr* literal : literals) dependency(index, literal);
+        // One hidden node waits for the scrutinee and the literals, so each
+        // binding needs a single edge however many arms there are.
+        const usize patterns = nodes_.size();
+        nodes_.emplace_back();
+        declaration(patterns).match = &match;
+        dependency(patterns, match.scrutinee);
+        for (const Expr* literal : literals) dependency(patterns, literal);
+        depend(index, patterns);
         for (const Pattern* pat : bindings) {
             const auto* binding = as<BindingPat>(pat);
             const auto* test = as<IsPat>(pat);
@@ -2598,8 +2605,7 @@ private:
                 if (test) { declared.annotation = test->type; continue; }
                 declared.match = &match;
                 declared.pattern = binding;
-                depend(b, expression(match.scrutinee));
-                for (const Expr* literal : literals) dependency(b, literal);
+                depend(b, patterns);
             }
         }
     }
@@ -4500,9 +4506,11 @@ private:
             const auto* reference = resolution_.reference(pat.path[pat.path.size() - 2].span);
             const auto ids = reference && reference->state == ResolutionState::Resolved ? resolution_.candidates(reference->target)
                                                                                        : std::span<const BindingId>{};
-            if (ids.size() == 1 && resolution_.binding(ids.front()).kind == BindingKind::Type && ids.front() != owner) {
+            // An alias names the type it expands to.
+            const auto named = ids.size() == 1 ? aliases_.binding(ids.front(), resolution_).type : ExpandedType{};
+            if (named.state == ExpansionState::Resolved && named.target.valid() && (named.target != owner || named.optional_depth)) {
                 diag_.error(DiagCode::ScalarTypeMismatch, pat.span, "expected a case of '{}', found one of '{}'",
-                            scalar_type_name(type), names_.str(resolution_.binding(ids.front()).name.sym));
+                            scalar_type_name(type), names_.str(resolution_.binding(named.target).name.sym));
                 return parts({Type::Error});
             }
         }

@@ -23,6 +23,10 @@ enum Tok {
 
 enum Other { plus }
 
+// An alias names the enum it expands to.
+type Others = Other
+type Toks = Tok
+
 enum Expr {
     lit(Tok)
     neg(Tok)
@@ -50,6 +54,8 @@ fun errors(t: Tok, i: Int) {
         .num -> 3
         .pair(x) -> 4
         Other.plus -> 5
+        Others.plus -> 5
+        Toks.num(n) -> n
         3 -> 6
         .num(true) -> 7
         .pair(_, n) | .num(n) -> 8

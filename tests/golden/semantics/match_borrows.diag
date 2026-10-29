@@ -22,3 +22,9 @@ match_borrows.phs:49:23: error[E0506]: cannot change 'm' while a 'match' arm bor
 match_borrows.phs:48:11: note: the pattern bindings borrow from it here
    48 |     match m {
       |           ^
+match_borrows.phs:62:36: error[E0506]: cannot move 'm' while a 'match' arm borrows from 'm'
+   62 |             let later = { -> match m { _ -> 0 } }
+      |                                    ^
+match_borrows.phs:60:11: note: the pattern bindings borrow from it here
+   60 |     match m {
+      |           ^

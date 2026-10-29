@@ -54,3 +54,14 @@ fun places() {
         .quit -> {}
     }
 }
+
+// Moving the matched place into a closure changes it too.
+fun captures(m: own Msg) {
+    match m {
+        .text(s) -> {
+            let later = { -> match m { _ -> 0 } }
+            print(s)
+        }
+        .quit -> {}
+    }
+}

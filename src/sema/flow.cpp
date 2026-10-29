@@ -1267,6 +1267,8 @@ private:
             const auto& binding = resolution_.binding(capture.binding);
             const auto name = names_.str(binding.name.sym);
             // A non-Copy local or `own` parameter moves into the closure.
+            // Moving it is changing the place a loop or match arm borrows from.
+            if (state.live && movable(capture.binding)) changes(Path{root_key(capture.binding), {}}, capture.use, name, "move");
             use(capture.binding, capture.use, true, "captured", state);
             // So does a capture of the enclosing closure, which keeps it (D3).
             if (closure_ && state.live && captured_.contains(capture.binding.value) &&

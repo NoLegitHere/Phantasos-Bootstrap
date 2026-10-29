@@ -1,0 +1,56 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Payload bindings borrow from the matched value (3.35): they cannot move
+// out or be changed, and the arm cannot change or move the place they
+// borrow from. `.clone()` gives an owned copy.
+enum Msg {
+    text(String)
+    quit
+}
+
+fun take(s: own String) {}
+
+fun borrows(m: Msg): String {
+    match m {
+        .text(s) -> take(s)
+        .quit -> {}
+    }
+    let copy: String = match m {
+        .text(s) -> s.clone()
+        .quit -> "quit"
+    }
+    let kept: String = match m {
+        .text(s) -> s
+        .quit -> "quit"
+    }
+    let later: fun() -> String = match m {
+        .text(s) -> ({ -> s })
+        .quit -> ({ -> "quit" })
+    }
+    return copy
+}
+
+fun places() {
+    var m: Msg = .text("a")
+    match m {
+        .text(s) -> { m = .quit; print(s) }
+        .quit -> { m = .text("b") }
+    }
+    match m {
+        .text(_) -> { m = .quit }
+        .quit -> {}
+    }
+}

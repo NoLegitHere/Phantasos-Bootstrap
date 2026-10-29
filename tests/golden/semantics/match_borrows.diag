@@ -1,0 +1,24 @@
+match_borrows.phs:28:26: error[E0505]: cannot move out of pattern binding 's'
+   28 |         .text(s) -> take(s)
+      |                          ^
+match_borrows.phs:28:26: note: use 's.clone()' to move a copy
+   28 |         .text(s) -> take(s)
+      |                          ^
+match_borrows.phs:36:21: error[E0505]: cannot move out of pattern binding 's'
+   36 |         .text(s) -> s
+      |                     ^
+match_borrows.phs:36:21: note: use 's.clone()' to move a copy
+   36 |         .text(s) -> s
+      |                     ^
+match_borrows.phs:40:27: error[E0505]: cannot move out of pattern binding 's'
+   40 |         .text(s) -> ({ -> s })
+      |                           ^
+match_borrows.phs:40:27: note: capture a copy made with 's.clone()' instead
+   40 |         .text(s) -> ({ -> s })
+      |                           ^
+match_borrows.phs:49:23: error[E0506]: cannot change 'm' while a 'match' arm borrows from 'm'
+   49 |         .text(s) -> { m = .quit; print(s) }
+      |                       ^
+match_borrows.phs:48:11: note: the pattern bindings borrow from it here
+   48 |     match m {
+      |           ^

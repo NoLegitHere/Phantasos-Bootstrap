@@ -104,6 +104,9 @@ struct Declaration {
     bool unwrap = false;
     // `for x in init`: the binding holds an element of an array or range.
     bool iterate = false;
+    // A binding in a pattern of this `match`, typed with its patterns (3.35).
+    const MatchExpr* match = nullptr;
+    const BindingPat* pattern = nullptr;
 };
 // One edge of the inference graph; a node's edges form a list in insertion order.
 struct Dependency {
@@ -388,6 +391,7 @@ public:
         result.conversions_ = std::move(conversions_);
         result.members_ = std::move(members_);
         result.array_members_ = std::move(array_members_);
+        result.pattern_cases_ = std::move(pattern_cases_);
         result.hierarchies_ = std::move(hierarchies_);
         result.aliases_ = std::move(aliases_);
         result.types_ = std::move(types_);
@@ -2566,6 +2570,39 @@ private:
         }
     }
 
+    // Patterns are typed from the scrutinee, and their literals are checked
+    // against it, so the match and each binding a pattern declares wait for
+    // both. An alternative repeats the first occurrence's binding, which is
+    // the one declared. `is T as x` binds a T.
+    void pattern_bindings(usize index, const MatchExpr& match) {
+        std::vector<const Pattern*> work, bindings;
+        for (const auto& arm : match.arms) work.push_back(arm.pattern);
+        std::vector<const Expr*> literals;
+        while (!work.empty()) {
+            const Pattern* pat = work.back();
+            work.pop_back();
+            if (const auto* alt = as<AltPat>(pat)) for (const Pattern* p : alt->alts) work.push_back(p);
+            else if (const auto* c = as<CasePat>(pat)) for (const Pattern* p : c->args) work.push_back(p);
+            else if (const auto* literal = as<LiteralPat>(pat)) literals.push_back(literal->literal);
+            else bindings.push_back(pat);
+        }
+        for (const Expr* literal : literals) dependency(index, literal);
+        for (const Pattern* pat : bindings) {
+            const auto* binding = as<BindingPat>(pat);
+            const auto* test = as<IsPat>(pat);
+            const Name name = binding ? binding->name : test ? test->binding : Name{};
+            if (name.sym.empty()) continue;
+            const auto head = declarations_.find(name.span.lo);
+            for (u32 b = head == declarations_.end() ? kNoDeclaration : head->second; b != kNoDeclaration; b = declaration_next_[b]) {
+                auto& declared = declaration(b);
+                if (test) { declared.annotation = test->type; continue; }
+                declared.match = &match;
+                declared.pattern = binding;
+                depend(b, expression(match.scrutinee));
+                for (const Expr* literal : literals) dependency(b, literal);
+            }
+        }
+    }
     void collect(const Pattern& pat, Returns returns, bool) {
         if (const auto* literal = as<LiteralPat>(&pat)) push(literal->literal, returns);
         else if (const auto* alt = as<AltPat>(&pat)) {
@@ -2629,6 +2666,7 @@ private:
                     child(index, arm.body, returns, discarded);
                     if (arm.guard) requirements_.push_back({arm.guard, Type::Bool, arm.guard->span});
                 }
+                pattern_bindings(index, match);
                 break;
             }
             case ExprKind::Interp:
@@ -4403,6 +4441,91 @@ private:
         }
         return settle({expected.scalar()});
     }
+    // Types each arm's pattern against the scrutinee, once its type is known
+    // (3.35). A pattern that fails gives its parts the error type, so their
+    // bindings report nothing more.
+    void type_patterns(const MatchExpr& match) {
+        if (!typed_matches_.insert(&match)) return;
+        Value subject = value(match.scrutinee);
+        if (subject.literal != Literal::None) subject = materialize(expressions_.at(match.scrutinee), default_type(subject));
+        if (unavailable(subject) || subject.type == Type::Never) return;
+        for (const auto& arm : match.arms) {
+            // Alternatives bind the same names, which must have the same types.
+            FlatMap<u32, Type> names;
+            std::vector<std::pair<const Pattern*, Type>> work{{arm.pattern, subject.type}};
+            while (!work.empty()) {
+                const auto [pat, type] = work.back();
+                work.pop_back();
+                switch (pat->kind) {
+                    case PatKind::Binding: {
+                        const auto& binding = *cast<BindingPat>(pat);
+                        pattern_types_[pat] = type;
+                        const auto [it, fresh] = names.try_emplace(binding.name.sym.id, type);
+                        if (!fresh && known(it->second) && known(type) && it->second != type) {
+                            diag_.error(DiagCode::ScalarTypeMismatch, binding.name.span,
+                                        "'{}' has type '{}' here but '{}' in an earlier alternative", names_.str(binding.name.sym),
+                                        scalar_type_name(type), scalar_type_name(it->second));
+                        }
+                        break;
+                    }
+                    case PatKind::Literal:
+                        if (known(type)) (void)require(cast<LiteralPat>(pat)->literal, type, pat->span);
+                        break;
+                    case PatKind::Case: case_pattern(*cast<CasePat>(pat), type, work); break;
+                    case PatKind::Alt:
+                        for (const Pattern* alt : cast<AltPat>(pat)->alts) work.push_back({alt, type});
+                        break;
+                    case PatKind::Wildcard: case PatKind::Is: case PatKind::Error: break;
+                }
+            }
+        }
+    }
+    // `.num(n)`, `Tok.num(n)` and `num(n)` name a case of the enum being
+    // matched, with one pattern per payload field.
+    void case_pattern(const CasePat& pat, Type type, std::vector<std::pair<const Pattern*, Type>>& work) {
+        const auto parts = [&](Type part) { for (const Pattern* arg : pat.args) work.push_back({arg, part}); };
+        if (!known(type)) return parts(type);
+        const BindingId owner = type.optional_depth ? BindingId{} : enum_of(type);
+        const Name name = pat.path.back();
+        if (!owner.valid()) {
+            // Generic enums are not checked yet.
+            if (!type.optional_depth && type.kind == Type::Nominal && resolution_.binding(types_.descriptor(type)->declaration).item &&
+                resolution_.binding(types_.descriptor(type)->declaration).item->kind == ItemKind::Enum) return parts({});
+            diag_.error(DiagCode::ScalarTypeMismatch, pat.span, "case pattern '{}' needs an enum to match, found '{}'",
+                        names_.str(name.sym), scalar_type_name(type));
+            return parts({Type::Error});
+        }
+        if (!pat.leading_dot && pat.path.size() > 1) {
+            // A qualified case names the enum it belongs to.
+            const auto* reference = resolution_.reference(pat.path[pat.path.size() - 2].span);
+            const auto ids = reference && reference->state == ResolutionState::Resolved ? resolution_.candidates(reference->target)
+                                                                                       : std::span<const BindingId>{};
+            if (ids.size() == 1 && resolution_.binding(ids.front()).kind == BindingKind::Type && ids.front() != owner) {
+                diag_.error(DiagCode::ScalarTypeMismatch, pat.span, "expected a case of '{}', found one of '{}'",
+                            scalar_type_name(type), names_.str(resolution_.binding(ids.front()).name.sym));
+                return parts({Type::Error});
+            }
+        }
+        const BindingId id = enum_case(owner, name.sym);
+        if (!id.valid()) {
+            diag_.error(DiagCode::UnknownMember, name.span, "enum '{}' has no case '{}'", scalar_type_name(type), names_.str(name.sym));
+            return parts({Type::Error});
+        }
+        pattern_cases_[&pat] = id;
+        const auto fields = signatures_.at(id.value).parameters;
+        if (carries_payload(id) != pat.has_args) {
+            if (pat.has_args) diag_.error(DiagCode::CasePayload, pat.span, "enum case '{}' has no payload; write it without parentheses", case_name(id));
+            else diag_.error(DiagCode::CasePayload, pat.span, "enum case '{}' carries a payload; match it with '.{}(...)'",
+                             case_name(id), names_.str(name.sym));
+            return parts({Type::Error});
+        }
+        if (pat.args.size() != fields.size()) {
+            diag_.error(DiagCode::CasePayload, pat.span, "enum case '{}' has {} payload field{}, but the pattern has {}",
+                        case_name(id), fields.size(), fields.size() == 1 ? "" : "s", pat.args.size());
+            return parts({Type::Error});
+        }
+        for (usize i = 0; i < fields.size(); ++i) work.push_back({pat.args[i], fields[i]});
+    }
     // `Tok.plus` is a value of its enum. `Tok.num` has to be called with its
     // payload (3.34).
     Value case_value(const Expr& expr, BindingId id) {
@@ -4774,6 +4897,12 @@ private:
             node.value = iterated(declaration);
             return;
         }
+        if (!expr && declaration.match) {
+            type_patterns(*declaration.match);
+            const auto it = pattern_types_.find(declaration.pattern);
+            node.value = {it == pattern_types_.end() ? Type{} : it->second};
+            return;
+        }
         if (!expr) {
             const Type declared = annotation(declaration.annotation);
             Value initial = declaration.init ? value(declaration.init) : Value{};
@@ -5025,6 +5154,7 @@ private:
                 break;
             }
             case ExprKind::Binary: node.value = binary(*cast<BinaryExpr>(expr)); break;
+            case ExprKind::Match: type_patterns(*cast<MatchExpr>(expr)); break;
             case ExprKind::Unwrap: {
                 const auto operand = value(cast<UnwrapExpr>(expr)->operand);
                 if (operand.type.optional_depth) node.value = {operand.type.element()};
@@ -5178,6 +5308,9 @@ private:
     std::vector<Node> nodes_;
     FlatSet<const Expr*> clone_callees_; // `x.clone` callees of calls without arguments
     FlatSet<const Expr*> loop_ranges_;   // ranges that are the subject of a `for` loop
+    FlatSet<const MatchExpr*> typed_matches_;
+    std::unordered_map<const Pattern*, Type> pattern_types_;  // binding patterns
+    std::unordered_map<const CasePat*, BindingId> pattern_cases_;
     std::unordered_map<const Expr*, ArrayMember> array_members_;
     std::vector<Declaration> node_declarations_{1};  // entry 0: no declaration
     std::vector<Dependency> dependencies_{1};  // edge 0: none

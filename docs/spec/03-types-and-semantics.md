@@ -1592,3 +1592,31 @@ calling it, is `E0413`.
 either side can be `.case`. Comparing different types is `E0400`. Equality
 of enums with payloads is not checked yet, like other composite
 equality (3.28). Generic enums are not checked yet.
+
+## 3.35 Match patterns [Core]
+
+Each arm's pattern is checked against the type of the matched value:
+
+- `_` matches anything, and a bare name binds the whole value.
+- A literal has the matched value's type, as if compared with `==`;
+  `none` matches an optional that holds no value.
+- `.num(n)` and `Tok.num(n)` match a case of the matched enum, with one
+  pattern per payload field, in order, so `n` has the field's type. Payload
+  patterns nest, as in `.lit(.num(n))`. A qualified pattern must name the
+  matched enum.
+- `a | b` matches either alternative. The alternatives bind the same names,
+  and each name has the same type in all of them.
+
+A case pattern against a value that is not an enum, or a pattern of
+another type, is `E0400`. A case the enum does not have is `E0450`. A
+pattern that calls a case without a payload, leaves out the payload of a
+case that has one, or has the wrong number of payload patterns is `E0413`.
+Patterns of generic enums are not checked yet, and `match` does not check
+that its arms cover every value yet.
+
+A `match` borrows the value it matches. Its bindings borrow the parts of
+that value they name, like the element of a `for` loop (3.33): assigning
+to them is `E0502`, and moving them out, also into a closure that captures
+them, is `E0505`; use `.clone()` to move a copy. While an arm whose pattern
+binds a name runs, changing or moving the matched place is `E0506`,
+unless its type is `Copy`.

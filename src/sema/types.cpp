@@ -295,7 +295,8 @@ public:
                     }
                 } else {
                     if (node.expr && !node.reference_prepared &&
-                        (node.expr->kind == ExprKind::Member || node.expr->kind == ExprKind::Name)) {
+                        (node.expr->kind == ExprKind::Member || node.expr->kind == ExprKind::Name ||
+                         node.expr->kind == ExprKind::OptMember)) {
                         node.reference_prepared = true;
                         if (const auto field = prepare_reference(node.expr)) {
                             depend(frame.node, field->value);
@@ -2190,7 +2191,8 @@ private:
     std::optional<BindingId> prepare_reference(const Expr* expr) {
         const auto* name_expr = as<NameExpr>(expr);
         const auto* member = as<MemberExpr>(expr);
-        const Name name = name_expr ? name_expr->name : member->name;
+        const auto* chained = as<OptMemberExpr>(expr);
+        const Name name = name_expr ? name_expr->name : member ? member->name : chained->name;
         CheckedMember record;
         BindingIds candidates;
         const auto* reference = resolution_.reference(name.span);
@@ -2206,6 +2208,34 @@ private:
             if (!record.owner.valid()) return std::nullopt;
             if (!known(nominal(record.owner))) { members_[expr] = std::move(record); return std::nullopt; }
             record.receiver_type = schema_self(record.owner);
+        } else if (chained) {
+            // `opt?.x` finds x on the value inside opt (3.6).
+            const auto base = value(chained->base);
+            if (base.type == Type::Error) record.state = ResolutionState::Unresolved;
+            else if (none_literal(chained->base) || base.literal != Literal::None ||
+                     (known(base.type) && !base.type.optional_depth && base.type != Type::Never)) {
+                diag_.error(DiagCode::NotOptional, chained->base->span, "'?.' needs an optional on its left, found '{}'",
+                            none_literal(chained->base) ? std::string("none") : scalar_type_name(default_type(base)));
+                record.state = ResolutionState::Unresolved;
+            }
+            const Type inner = base.type.optional_depth ? base.type.element() : Type{};
+            if (record.state != ResolutionState::Unresolved) {
+                if (inner.kind == Type::Nominal && !inner.optional_depth) {
+                    record.owner = types_.descriptor(inner)->declaration;
+                    record.receiver_type = inner;
+                } else if (symbolic(inner) && !inner.optional_depth) record.receiver_type = inner;
+            }
+            if (!symbolic(record.receiver_type)) {
+                if (!record.owner.valid() || !resolution_.binding(record.owner).members.valid()) {
+                    if (record.state != ResolutionState::Unresolved && known(inner)) {
+                        diag_.error(DiagCode::UnknownMember, name.span, "type '{}' has no member '{}'",
+                                    scalar_type_name(inner), names_.str(name.sym));
+                        record.state = ResolutionState::Unresolved;
+                    }
+                    members_[expr] = std::move(record);
+                    return std::nullopt;
+                }
+            }
         } else {
             const auto base = value(member->base);
             const auto type = entity(member->base);
@@ -3365,6 +3395,13 @@ private:
         while (const auto* paren = as<ParenExpr>(expr)) expr = paren->inner;
         return expr && expr->kind == ExprKind::None;
     }
+    // `opt?.x` is `none` when opt is: an optional of x's type, or that type
+    // itself when it is already optional. A Unit or Never result is Unit (3.6).
+    static Value chained_result(Value member) {
+        if (!known(member.type)) return member;
+        if (member.type == Type::Unit || member.type == Type::Never) return {Type::Unit};
+        return {member.type.optional_depth ? member.type : member.type.optional()};
+    }
     // `if let x = opt` binds the value inside an optional; an annotation
     // names that inner type (3.6).
     Value unwrapped(const Declaration& declaration) {
@@ -4220,6 +4257,7 @@ private:
                 record.kind = CallKind::Method;
                 if (const auto* member = as<MemberExpr>(receiver); member && !members_.at(member).type_receiver)
                     record.receiver = member->base;
+                else if (const auto* chained = as<OptMemberExpr>(receiver)) record.receiver = chained->base;
             } else if (resolution_.scopes()[b.scope.value].kind != ScopeKind::File) return {};
         }
         struct Match {
@@ -4547,7 +4585,8 @@ private:
                 break;
             }
             case ExprKind::Name:
-            case ExprKind::Member: {
+            case ExprKind::Member:
+            case ExprKind::OptMember: {
                 const auto it = members_.find(expr);
                 if (it != members_.end()) {
                     const auto& record = it->second;
@@ -4570,6 +4609,7 @@ private:
                         if (known(node.value.type)) functions_[expr] = names->second.front();
                     }
                 } else if (expr->kind == ExprKind::Name && node.first_dep) node.value = nodes_[dependencies_[node.first_dep].node].value;
+                if (expr->kind == ExprKind::OptMember) node.value = chained_result(node.value);
                 break;
             }
             case ExprKind::GenericInst: {
@@ -4670,6 +4710,10 @@ private:
                 const auto* fun = cast<FunItem>(resolution_.binding(record.target).item);
                 if (context) node.value = {fun->sig.ret ? annotation(fun->sig.ret, context) : substitute_type(node.value.type, context)};
                 if (node.value.type == Type::Error) record.state = CallState::Error;
+                if (unparen(cast<CallExpr>(expr)->callee)->kind == ExprKind::OptMember) {
+                    record.result = node.value.type;
+                    node.value = chained_result(node.value);
+                }
                 break;
             }
             case ExprKind::Unary: {

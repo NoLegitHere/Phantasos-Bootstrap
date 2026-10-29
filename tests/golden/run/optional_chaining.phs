@@ -1,0 +1,67 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Optional chaining: `?.` reads a field or calls a method of the value inside
+// an optional, and gives `none` without evaluating the arguments when there is
+// none. An optional result is not wrapped again; each step needs its own `?.`.
+
+struct Point(let x: Int, let y: Int, let tag: Int?) {
+    fun sum(): Int = x + y
+    fun plus(k: Int): Int = x + k
+    fun half(): Int? = if x % 2 == 0 { x / 2 } else { none }
+    fun show() { print(x) }
+    fun big(): Line = Line(Point(x, y, none), Point(y, x, none), x + y)
+}
+
+struct Line(let a: Point, let b: Point, let w: Int)
+
+struct Holder(let p: Point?, let name: String?)
+
+fun arg(n: Int): Int {
+    print("arg")
+    return n
+}
+
+fun scaled(p: Point?, k: Int): Int? = p?.plus(arg(k))
+
+fun nearest(n: Int): Point? {
+    if n == 0 { return none }
+    return Point(n, n + 1, n)
+}
+
+fun main(): Int {
+    let p = nearest(2)
+    let q = nearest(0)
+    print(p?.x ?? -1)
+    print(q?.x ?? -1)
+    print(p?.tag ?? -1)
+    print(q?.tag ?? -1)
+    print(p?.sum() ?? -1)
+    print(q?.sum() ?? -1)
+    print(p?.half() ?? -1)
+    print(nearest(3)?.half() ?? -1)
+    p?.show()
+    q?.show()
+    print(p?.big()?.w ?? -1)
+    let l = p?.big()
+    if let line = l { print(line.b.x) }
+    let h = Holder(p, "hi")
+    print(h.p?.y ?? -1)
+    print(scaled(q, 3) == none)
+    print(scaled(p, 3) ?? -1)
+    print(p?.x == 2)
+    print(q?.x == none)
+    return 0
+}

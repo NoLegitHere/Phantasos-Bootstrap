@@ -14,9 +14,15 @@
 // limitations under the License.
 
 // Optionals stage0 cannot compile yet: of Unit, compared as structs, tuples
-// or Strings, and a struct that holds itself through an optional.
+// or Strings, a struct that holds itself through an optional, and `?.` calls
+// of generic, interface and `mut fun` methods.
 
-struct Point(let x: Int, let y: Int)
+struct Point(var x: Int, let y: Int) {
+    mut fun move() { x += 1 }
+    fun same<T>(v: T): T = v
+}
+interface Shape { fun area(): Int }
+fun area<S: Shape>(s: S?): Int? = s?.area()
 struct Node(let value: Int, let next: Node?)
 
 fun unit(x: Unit?) {}
@@ -28,4 +34,7 @@ fun main() {
     let named = s == "s"
     let t: (Int, Int)? = (1, 2)
     let pair = t == none
+    var q: Point? = Point(1, 2)
+    q?.move()
+    let same: Int? = q?.same(3)
 }

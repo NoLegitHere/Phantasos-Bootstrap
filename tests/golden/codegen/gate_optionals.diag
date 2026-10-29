@@ -1,15 +1,24 @@
-gate_optionals.phs:20:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   20 | struct Node(let value: Int, let next: Node?)
+gate_optionals.phs:25:35: error[E0600]: stage0 code generation does not support '?.' calls of generic methods, interface methods or 'mut fun' methods yet
+   25 | fun area<S: Shape>(s: S?): Int? = s?.area()
+      |                                   ^^^^^^^
+gate_optionals.phs:26:8: error[E0600]: stage0 code generation does not support recursive structs yet
+   26 | struct Node(let value: Int, let next: Node?)
       |        ^^^^
-gate_optionals.phs:22:10: error[E0600]: stage0 code generation does not support values of type 'Unit?' yet
-   22 | fun unit(x: Unit?) {}
+gate_optionals.phs:28:10: error[E0600]: stage0 code generation does not support values of type 'Unit?' yet
+   28 | fun unit(x: Unit?) {}
       |          ^
-gate_optionals.phs:26:9: error[E0600]: stage0 code generation needs the type of 'missing'; add a type annotation
-   26 |     let missing = p == none
+gate_optionals.phs:32:9: error[E0600]: stage0 code generation needs the type of 'missing'; add a type annotation
+   32 |     let missing = p == none
       |         ^^^^^^^
-gate_optionals.phs:28:17: error[E0600]: stage0 code generation does not support operators on strings yet
-   28 |     let named = s == "s"
+gate_optionals.phs:34:17: error[E0600]: stage0 code generation does not support operators on strings yet
+   34 |     let named = s == "s"
       |                 ^^^^^^^^
-gate_optionals.phs:30:9: error[E0600]: stage0 code generation needs the type of 'pair'; add a type annotation
-   30 |     let pair = t == none
+gate_optionals.phs:36:9: error[E0600]: stage0 code generation needs the type of 'pair'; add a type annotation
+   36 |     let pair = t == none
       |         ^^^^
+gate_optionals.phs:38:5: error[E0600]: stage0 code generation does not support '?.' calls of generic methods, interface methods or 'mut fun' methods yet
+   38 |     q?.move()
+      |     ^^^^^^^
+gate_optionals.phs:39:22: error[E0600]: stage0 code generation does not support '?.' calls of generic methods, interface methods or 'mut fun' methods yet
+   39 |     let same: Int? = q?.same(3)
+      |                      ^^^^^^^

@@ -986,7 +986,7 @@ private:
             if (!expr) continue;
             switch (expr->kind) {
                 case ExprKind::Name: case ExprKind::SelfValue: case ExprKind::Super: case ExprKind::Member:
-                case ExprKind::TupleField: case ExprKind::Index:
+                case ExprKind::OptMember: case ExprKind::TupleField: case ExprKind::Index:
                     consumed_.insert(expr);
                     break;
                 case ExprKind::Tuple: for (const Expr* elem : cast<TupleExpr>(expr)->elems) work.push_back(elem); break;
@@ -1067,6 +1067,13 @@ private:
                 // Fields never move out on their own (D2), and no callable owns a static field.
                 subject = std::string(record->type_receiver ? "static " : "") + "field '" +
                           std::string(names_.str(member->name.sym)) + "'";
+            } else if (const auto* chained = as<OptMemberExpr>(&expr)) {
+                // Nor through `?.`, which leaves the optional holding its value.
+                const auto* record = types_.member(chained);
+                if (!record || record->state != ResolutionState::Resolved || record->candidates.size() != 1 ||
+                    resolution_.binding(record->candidates.front()).kind != BindingKind::Field)
+                    return false;
+                subject = "field '" + std::string(names_.str(chained->name.sym)) + "'";
             } else {
                 subject = "an element";
             }

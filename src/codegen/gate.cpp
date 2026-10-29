@@ -650,6 +650,20 @@ private:
                 work.push_back({member.base, true});
                 return;
             }
+            case ExprKind::OptMember: {
+                // `opt?.field` on an optional of a supported struct.
+                const auto& chained = *cast<OptMemberExpr>(&expr);
+                const auto* record = types_.member(&chained);
+                const bool field = record && record->state == ResolutionState::Resolved && record->candidates.size() == 1 &&
+                                   resolution_.binding(record->candidates.front()).kind == BindingKind::Field;
+                if (!field) {
+                    unsupported(expr.span, "'?.' other than on struct fields and method calls");
+                    return;
+                }
+                if (!type(chained.base->span, types_.expression(chained.base))) return;
+                work.push_back({chained.base, true});
+                return;
+            }
             case ExprKind::Tuple: {
                 const auto& tuple = *cast<TupleExpr>(&expr);
                 for (usize i = tuple.elems.size(); i-- > 0;) work.push_back({tuple.elems[i], true});
@@ -702,7 +716,7 @@ private:
             case ExprKind::Paren: case ExprKind::Unary: case ExprKind::Binary: case ExprKind::Call: case ExprKind::Block:
             case ExprKind::If: case ExprKind::Member: case ExprKind::SelfValue: case ExprKind::Tuple:
             case ExprKind::TupleField: case ExprKind::Closure: case ExprKind::GenericInst: case ExprKind::None:
-            case ExprKind::Unwrap:
+            case ExprKind::Unwrap: case ExprKind::OptMember:
                 return true;
             default:
                 unsupported(expr.span, expr_name(expr.kind));
@@ -729,6 +743,8 @@ private:
                 work.push_back(call->callee);
             } else if (const auto* member = as<MemberExpr>(expr)) {
                 work.push_back(member->base);
+            } else if (const auto* chained = as<OptMemberExpr>(expr)) {
+                work.push_back(chained->base);
             } else if (const auto* element = as<TupleFieldExpr>(expr)) {
                 work.push_back(element->base);
             } else if (const auto* tuple = as<TupleExpr>(expr)) {
@@ -823,8 +839,13 @@ private:
             for (const ScalarType argument : checked->type_arguments)
                 if (!stored(call.callee->span, argument, "type arguments")) return;
             const auto* owner = owners_.at(fun);
-            if (!fun->sig.generics.empty() || !owner->generics.empty() || owner->kind == ItemKind::Interface)
-                generic_calls_[current_].push_back(&call);
+            const bool generic = !fun->sig.generics.empty() || !owner->generics.empty() || owner->kind == ItemKind::Interface;
+            // Through `?.`, the value inside the optional is a temporary.
+            if (unparen(call.callee)->kind == ExprKind::OptMember && (generic || has_modifier(fun->mods, Modifier::Mut))) {
+                unsupported(call.callee->span, "'?.' calls of generic methods, interface methods or 'mut fun' methods");
+                return;
+            }
+            if (generic) generic_calls_[current_].push_back(&call);
             // A `mut fun` changes its receiver in place.
             if (has_modifier(fun->mods, Modifier::Mut) && checked->receiver && !place(checked->receiver)) {
                 unsupported(checked->receiver->span, "'mut fun' calls on anything but a local variable or its fields");

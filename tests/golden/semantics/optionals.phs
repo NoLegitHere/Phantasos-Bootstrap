@@ -14,7 +14,8 @@
 // limitations under the License.
 
 // Optionals (3.6): `if let` and `while let` bind the value inside, `??`
-// falls back, and `==` compares with `none`. Only optionals unwrap.
+// falls back, `==` compares with `none`, and `?.` reads a member of the
+// value inside. Only optionals unwrap.
 
 fun find(n: Int): Int? {
     if n == 0 { return none }
@@ -29,10 +30,25 @@ fun valid(n: Int): Int {
     return total + (find(n) ?? 0)
 }
 
-fun errors(n: Int) {
+struct Named(let name: String, let size: Int) {
+    fun twice(): Int = size * 2
+    fun half(): Int? = if size % 2 == 0 { size / 2 } else { none }
+}
+
+fun chained(named: Named?): Int {
+    let size: Int? = named?.size
+    let flat: Int? = named?.half()
+    let copy: String? = named?.name.clone()
+    return (named?.twice() ?? 0) + (size ?? 0) + (flat ?? 0)
+}
+
+fun errors(n: Int, named: Named?) {
     if let x = n {}
     if let y = none {}
     let z = n ?? 1
     let w = none ?? 1
     let v = find(n) ?? "zero"
+    let u = n?.size
+    let t = none?.size
+    let s = named?.missing
 }

@@ -200,6 +200,7 @@ struct CheckedCall {
     std::vector<ScalarType> type_arguments; // explicit or inferred arguments of a selected application
     std::vector<ScalarType> parameter_types; // selected signature after receiver/function substitution
     bool inferred_type_arguments = false;
+    ScalarType result;  // a call through `?.`: the method's own result, before it is made optional
 };
 
 struct CheckedConstraint {

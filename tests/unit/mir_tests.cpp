@@ -684,6 +684,20 @@ void optionals() {
     CHECK(mir::dump(*p.program).contains("    panic \"panic: unwrapped 'none' at mir.phs:3:12\\n\"\n"));
 }
 
+void optional_chaining() {
+    const std::string point = "struct P(let x: Int, let t: Int?) {\n    fun plus(k: Int): Int = x + k\n"
+                              "    fun half(): Int? = if x % 2 == 0 { x / 2 } else { none }\n}\n"
+                              "fun boom(): Int = 1 / 0\n";
+    // Fields and results are optional, an optional one is not wrapped again.
+    CHECK(result(point + "fun main(): Int {\n    let p: P? = P(4, 5)\n    let n: P? = none\n"
+                         "    return (p?.x ?? 0) + (n?.x ?? 10) + (p?.t ?? 0) * 100 + (n?.t ?? 2) * 1000 +\n"
+                         "        (p?.plus(1) ?? 0) * 10000 + (p?.half() ?? 0) * 100000\n}\n") ==
+          4 + 10 + 500 + 2000 + 50000 + 200000);
+    // On `none`, the arguments are not evaluated and the method is not called.
+    CHECK(!traps(point + "fun main(): Int {\n    let n: P? = none\n    return n?.plus(boom()) ?? 0\n}\n"));
+    CHECK(traps(point + "fun main(): Int {\n    let p: P? = P(1, none)\n    return p?.plus(boom()) ?? 0\n}\n"));
+}
+
 int main() {
     target_program();
     control_flow();
@@ -699,6 +713,7 @@ int main() {
     generic_functions();
     generic_structs();
     optionals();
+    optional_chaining();
     rejected_files();
     long_trees();
     std::println("mir tests passed");

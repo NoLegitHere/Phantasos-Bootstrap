@@ -87,7 +87,7 @@ foundation. Complete.
   - [x] Optionals in `check`: `if let`, `while let`, `??` and comparisons
     with `none`.
   - [x] Optional code generation, with a located panic for `!` on `none`.
-  - [ ] Optional chaining (`?.`).
+  - [x] Optional chaining (`?.`).
   - [ ] Arrays in `check`: built-in members and `for` over arrays and ranges.
   - [ ] Array values in code generation, with bounds checks.
   - [ ] `append` growth and `for` loops in code generation.

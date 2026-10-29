@@ -2,8 +2,10 @@
 
 This is the normative description of the Phantasos language. Until v1.0 it is
 a living draft. Sections marked **[Core]** describe Phantasos-Core, the subset
-that the stage0 bootstrap compiler implements and that the self-hosted
-compiler is written in. Unmarked sections belong to the full language.
+that the self-hosted compiler implements first. Unmarked sections belong to
+the full language. The self-hosted compiler itself is written in the smaller
+bootstrap subset, the part of Core that stage0 compiles (3.25,
+[ADR 0003](../adr/0003-bootstrap-subset.md)).
 
 | Chapter | Contents |
 |---|---|

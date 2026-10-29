@@ -1,6 +1,6 @@
 # ADR 0002: Foundational language and toolchain decisions
 
-- Status: accepted
+- Status: accepted; the Bootstrap row is superseded by [ADR 0003](0003-bootstrap-subset.md)
 
 | Area | Decision |
 |---|---|

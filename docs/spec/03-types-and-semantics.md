@@ -334,8 +334,8 @@ The bootstrap prelude supplies type names `Int8/16/32/64`, `UInt8/16/32/64`,
 implemented runtime definitions or checked signatures. User declarations may
 shadow them. Other library names must be declared explicitly.
 
-The current API resolves one file. Package discovery, shared module scopes
-and imported declarations belong to P2. `check` reports `E0304` for imports;
+The current API resolves one file. Directory packages, shared module scopes
+and imported declarations are planned for stage0 (4.5). `check` reports `E0304` for imports;
 `parse` still accepts their syntax. Attribute names, argument keys and call
 argument labels are metadata, while attribute argument values undergo the
 same expression lookup as other expressions.
@@ -1227,7 +1227,7 @@ Integers print in decimal with a leading `-` when negative. A declaration
 named `print` shadows the prelude function, as with other prelude names (3.13).
 
 When a write to standard output fails, the program panics (3.7). Once `std`
-exists (P2), the prelude `print` forwards to `std.io` with the same signature
+exists (in stage1), the prelude `print` forwards to `std.io` with the same signature
 and output.
 
 Stage0 generates code for `print` on Linux x86_64: each call writes its bytes

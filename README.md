@@ -37,11 +37,11 @@ x86_64. It has:
   Parts of the type system are still incomplete, so a program that passes
   `check` is not yet guaranteed to be valid.
 - Native code for a subset of Core: integers, `Bool`, `String` literals,
-  structs, tuples, methods, function values, closures, and generic functions
-  and structs with interface bounds. `build` turns such a program into a
+  structs, tuples, methods, function values, closures, generic functions
+  and structs with interface bounds, arrays and optionals. `build` turns such a program into a
   static Linux x86_64 executable with a small runtime of its own.
 
-Not done yet: Windows executables, arrays, optionals, classes, enums, error
+Not done yet: Windows executables, classes, enums, error
 handling, destructors, a standard library, and package/workspace builds.
 
 The language is specified in [`docs/spec`](docs/spec), with a standalone
@@ -50,8 +50,9 @@ The language is specified in [`docs/spec`](docs/spec), with a standalone
 ## What runs today
 
 `build <file.phs> [-o <out>]` compiles a program to a Linux x86_64
-executable. Its exit status is the value `main` returns. Integer overflow and
-division by zero stop the program with a panic message and exit status 101.
+executable. Its exit status is the value `main` returns. Integer overflow,
+division by zero, an array index out of bounds and `!` on `none` stop the
+program with a panic message and exit status 101.
 `print` writes a `String`, `Int`, `UInt` or `Bool` followed by a newline.
 Anything outside the supported subset gets an `E0600` diagnostic; spec
 [3.25](docs/spec/03-types-and-semantics.md) lists the subset.
@@ -182,6 +183,28 @@ fun main(): Int {
     let winner = best(Player(points: 7), Player(points: 9))
     let p = Pair(first: true, second: winner.score()).swap()
     return twice({ x: Int -> x + 1 })(p.first)  // 11
+}
+```
+
+Arrays grow with `append`, and `.clone()` copies one with its elements.
+Optionals are read with `if let`, `??` and `?.` ([`run/tasks.phs`](tests/golden/run/tasks.phs),
+[`run/stacks.phs`](tests/golden/run/stacks.phs)):
+
+```phantasos
+struct Stack<T>(var items: [T]) {
+    mut fun push(x: own T) { items.append(x) }
+    mut fun pop(): T? = items.removeLast()
+}
+
+fun main(): Int {
+    var stack = Stack<[Int]>([])
+    var scores = [1, 2]
+    stack.push(scores.clone())   // a copy: later changes to scores don't reach it
+    scores.append(3)
+    var total = 0
+    for s in scores { total += s }
+    let saved = stack.pop()
+    return total + (saved?.count ?? 0) + (stack.pop()?.count ?? 10)  // 6 + 2 + 10
 }
 ```
 

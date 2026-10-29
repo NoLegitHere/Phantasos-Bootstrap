@@ -82,7 +82,7 @@ foundation. Complete.
   - [x] Values of generic functions, and generic closures.
   - [x] Interfaces as bounds, through witnesses.
   - [x] Generics samples and run tests.
-- [ ] **Arrays and optionals (M7).** `[T]` arrays and `T?` optionals in
+- [x] **Arrays and optionals (M7).** `[T]` arrays and `T?` optionals in
   `check` and in code generation on Linux x86_64.
   - [x] Optionals in `check`: `if let`, `while let`, `??` and comparisons
     with `none`.
@@ -92,7 +92,7 @@ foundation. Complete.
   - [x] Array values in code generation, with bounds checks.
   - [x] `append` growth and `for` loops in code generation.
   - [x] Moves, `.clone()` and generics for arrays and optionals.
-  - [ ] Samples and run tests.
+  - [x] Samples and run tests.
 - [ ] Generic base substitution and built-in traits: generic base and
   interface graphs, derived `Copy`/`Sendable`/`Error`, associated defaults and
   the remaining generic method contracts.

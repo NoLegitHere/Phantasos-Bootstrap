@@ -1,0 +1,75 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// A generic stack backed by an array, used as a tiny calculator and as an
+// undo history of whole arrays. `pop` and `peek` return `none` on an empty
+// stack, and every saved array is a copy that later edits do not reach.
+
+struct Stack<T>(var items: [T]) {
+    mut fun push(x: own T) { items.append(x) }
+    mut fun pop(): T? = items.removeLast()
+    fun peek(): T? {
+        if items.isEmpty { return none }
+        return items[items.count - 1]
+    }
+}
+
+// Reverse Polish notation over integers: -1 adds, -2 multiplies, -3 subtracts.
+fun evaluate(tokens: [Int]): Int? {
+    var stack = Stack<Int>([])
+    for token in tokens {
+        if token >= 0 {
+            stack.push(token)
+        } else {
+            let b = stack.pop()
+            let a = stack.pop()
+            if let x = a {
+                if let y = b {
+                    if token == -1 { stack.push(x + y) }
+                    if token == -2 { stack.push(x * y) }
+                    if token == -3 { stack.push(x - y) }
+                } else { return none }
+            } else { return none }
+        }
+    }
+    let result = stack.pop()
+    if stack.items.isEmpty { return result }
+    return none
+}
+
+fun sum(xs: [Int]): Int {
+    var total = 0
+    for x in xs { total += x }
+    return total
+}
+
+fun main(): Int {
+    print(evaluate([2, 3, -1, 4, -2]) ?? -1)  // (2 + 3) * 4 = 20
+    print(evaluate([1, -1]) ?? -1)            // too few operands
+    print(evaluate([1, 2]) ?? -1)             // one value left over
+
+    var history = Stack<[Int]>([])
+    var scores = [1, 2]
+    history.push(scores.clone())
+    scores.append(3)
+    history.push(scores.clone())
+    scores[0] = 100
+    print(sum(scores))                        // 105
+    if let top = history.peek() { print(sum(top)) }  // 6
+    let undone = history.pop()
+    let first = history.pop()
+    print(history.pop()?.count ?? 0)          // empty: 0
+    return (undone?.count ?? 0) * 10 + (first?.count ?? 0)  // 32
+}

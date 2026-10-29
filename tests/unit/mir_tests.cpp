@@ -762,6 +762,9 @@ void growth_and_loops() {
                  "    for b in Int8(120)..top { n += 1 }\n    for i in 5..4 { n += 100 }\n"
                  "    for i in 5..<5 { n += 100 }\n    return total + n * 1000\n}\n") ==
           6 + (0 + 1 + 2 + 4 + 5) * 10 + 8000);
+    // The lower bound keeps its value when the upper bound assigns it.
+    CHECK(result("fun id(x: Int): Int = x\nfun main(): Int {\n    var lo = 1\n    var n = 0\n"
+                 "    for i in lo..id(if true {\n        lo = 3\n        4\n    } else { 4 }) { n += i }\n    return n\n}\n") == 10);
     // The loop reads its array once, so appending in the body does not extend it.
     CHECK(result("fun main(): Int {\n    var a = [1, 2]\n    var n = 0\n"
                  "    for x in a {\n        a.append(x)\n        n += 1\n    }\n    return n * 10 + a.count\n}\n") == 24);

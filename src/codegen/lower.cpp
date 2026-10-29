@@ -636,13 +636,15 @@ private:
         if (range && range->op != BinOp::Range && range->op != BinOp::RangeExcl) range = nullptr;
         Reg array, counter, limit;
         if (range) {
+            // The lower bound is kept before the upper one runs, which can assign it.
             const Reg lo = any(range->lhs);
-            const Reg hi = lo.valid() ? any(range->rhs) : Reg{};
             // A diverging bound has already ended the block.
-            if (!hi.valid()) return;
+            if (!lo.valid()) return;
             counter = reg(type);
-            limit = reg(type);
             copy(counter, lo);
+            const Reg hi = any(range->rhs);
+            if (!hi.valid()) return;
+            limit = reg(type);
             copy(limit, hi);
         } else {
             const Reg iterated = any(loop.iter);

@@ -51,26 +51,26 @@ bb7:
     br bb5
 bb8:
     %30: i64 = const 1
-    %31: i64 = const 3
-    %32: i64 = copy %30
-    %33: i64 = copy %31
+    %31: i64 = copy %30
+    %32: i64 = const 3
+    %33: i64 = copy %32
     br bb9
 bb9:
-    %34: bool = le %32, %33
+    %34: bool = le %31, %33
     condbr %34, bb10, bb12
 bb10:
-    %35: i64 = copy %32
+    %35: i64 = copy %31
     %36: i64 = const 2
     %37: bool = eq %35, %36
     condbr %37, bb11, bb14
 bb11:
-    %38: bool = eq %32, %33
+    %38: bool = eq %31, %33
     condbr %38, bb12, bb13
 bb12:
     ret %19
 bb13:
     %39: i64 = const 1
-    %32: i64 = wadd %32, %39
+    %31: i64 = wadd %31, %39
     br bb9
 bb14:
     %19: i64 = add %19, %35

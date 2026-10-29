@@ -4,21 +4,15 @@ gate_errors.phs:20:15: error[E0600]: stage0 code generation does not support ope
 gate_errors.phs:26:5: error[E0600]: stage0 code generation does not support 'defer' yet
    26 |     defer { total = 0 }
       |     ^^^^^^^^^^^^^^^^^^^
-gate_errors.phs:27:5: error[E0600]: stage0 code generation does not support shifts yet
-   27 |     total <<= 1
-      |     ^^^^^^^^^^^
-gate_errors.phs:28:12: error[E0600]: stage0 code generation does not support shifts yet
-   28 |     return total >> 1
-      |            ^^^^^^^^^^
-gate_errors.phs:31:29: error[E0600]: stage0 code generation does not support 'match' yet
-   31 | fun matching(x: Int): Int = match x {
+gate_errors.phs:30:29: error[E0600]: stage0 code generation does not support 'match' yet
+   30 | fun matching(x: Int): Int = match x {
       |                             ^^^^^^^^^
-gate_errors.phs:37:22: error[E0600]: stage0 code generation does not support operators on function values yet
-   37 |     let same: Bool = values == values
+gate_errors.phs:36:22: error[E0600]: stage0 code generation does not support operators on function values yet
+   36 |     let same: Bool = values == values
       |                      ^^^^^^^^^^^^^^^^
-gate_errors.phs:42:9: error[E0600]: stage0 code generation needs the type of 'v'; add a type annotation
-   42 |     let v = if c { 1 } else { 2 }
+gate_errors.phs:41:9: error[E0600]: stage0 code generation needs the type of 'v'; add a type annotation
+   41 |     let v = if c { 1 } else { 2 }
       |         ^
-gate_errors.phs:47:12: error[E0600]: stage0 code generation does not support 'unsafe' blocks yet
-   47 |     return unsafe { 0 }
+gate_errors.phs:46:12: error[E0600]: stage0 code generation does not support 'unsafe' blocks yet
+   46 |     return unsafe { 0 }
       |            ^^^^^^^^^^^^

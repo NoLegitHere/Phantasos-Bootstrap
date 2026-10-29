@@ -338,6 +338,12 @@ private:
                     case Op::And: out = a & b2; break;
                     case Op::Or: out = a | b2; break;
                     case Op::Xor: out = a ^ b2; break;
+                    case Op::Shl: case Op::Shr:
+                        trap = b2 >= mir::bit_width(type) ? 1 : 0;
+                        if (!trap)
+                            out = inst.op == Op::Shl ? normalize(type, a << b2)
+                                  : sign ? static_cast<u64>(sa >> b2) : a >> b2;
+                        break;
                     case Op::Eq: out = a == b2; break;
                     case Op::Ne: out = a != b2; break;
                     case Op::Lt: out = sign ? sa < sb : a < b2; break;

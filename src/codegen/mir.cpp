@@ -110,6 +110,8 @@ std::string_view op_name(Op op) {
         case Op::And: return "and";
         case Op::Or: return "or";
         case Op::Xor: return "xor";
+        case Op::Shl: return "shl";
+        case Op::Shr: return "shr";
         case Op::Eq: return "eq";
         case Op::Ne: return "ne";
         case Op::Lt: return "lt";

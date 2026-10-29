@@ -201,6 +201,14 @@ public:
         byte(modrm(ext, r));
         end(start, std::format("{} {}", mnemonic, name(r)));
     }
+    // D3 group, by cl: shl /4, shr /5, sar /7.
+    void shift(u8 ext, std::string_view mnemonic, Reg r) {
+        const auto start = begin();
+        rex(true, 0, r);
+        byte(0xD3);
+        byte(modrm(ext, r));
+        end(start, std::format("{} {}, cl", mnemonic, name(r)));
+    }
     void cqo() { raw({0x48, 0x99}, "cqo"); }
     void zero_edx() { raw({0x31, 0xD2}, "xor edx, edx"); }
     void flip_bool() { raw({0x83, 0xF0, 0x01}, "xor eax, 1"); }
@@ -778,6 +786,17 @@ private:
             case Op::And: as_.alu(0x21, "and", RAX, RCX); break;
             case Op::Or: as_.alu(0x09, "or", RAX, RCX); break;
             case Op::Xor: as_.alu(0x31, "xor", RAX, RCX); break;
+            case Op::Shl: case Op::Shr:
+                // The amount, of the same type, must be below the width;
+                // unsigned, a negative one is too.
+                as_.mov_imm(RDX, mir::bit_width(type));
+                as_.alu(0x39, "cmp", RCX, RDX);
+                overflow(AE);
+                if (inst.op == Op::Shl) {
+                    as_.shift(4, "shl", RAX);
+                    as_.normalize(RAX, type);
+                } else as_.shift(sign ? 7 : 5, sign ? "sar" : "shr", RAX);
+                break;
             case Op::Eq: case Op::Ne: case Op::Lt: case Op::Le: case Op::Gt: case Op::Ge: {
                 as_.alu(0x39, "cmp", RAX, RCX);
                 as_.setcc(compare(inst.op, sign));

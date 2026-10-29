@@ -18,7 +18,7 @@
 
 fun main(): Int {
     let k = { -> 42 }
-    let shifted = { x: Int -> x << 1 }
+    let letter = { x: Int -> 'c' }
     let half = { -> 1.5 }
     let unit = { u: Unit -> 1 }
     return k()

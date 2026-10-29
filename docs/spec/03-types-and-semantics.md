@@ -1071,13 +1071,13 @@ the subset, so that nothing half-checked reaches code generation:
   `isEmpty`, `append` and `removeLast` (3.33), top-level functions named as values (3.14), generic
   ones included, with inferred or explicit type arguments, closures
   (3.29) and calls of function values, unary `-`, `!` and `~`, arithmetic including
-  the wrapping forms, `&`, `|`, `^`, comparisons, `&&` and `||`, `none`, `??`, `!`,
+  the wrapping forms, `&`, `|`, `^`, `<<`, `>>`, comparisons, `&&` and `||`, `none`, `??`, `!`,
   `?.` on struct fields, on `count` and `isEmpty` and on calls of struct methods that are not generic or
   `mut fun`, and `==` and `!=` on optionals whose innermost type is a scalar other than
   `String`. Used `if` and block
   results are allowed where their type is known (3.24).
 
-Everything else reports `E0600`. That includes shifts, `defer`,
+Everything else reports `E0600`. That includes `defer`,
 `throw`, `match`, `unsafe` blocks, operators on strings, string interpolation,
 floating-point values, `?.` calls of `append` and `removeLast`, comparisons of tuples, of
 arrays and of optionals of anything but scalars, `?.` calls of generic, interface or `mut fun` methods, classes, enums, values of an interface type, generic
@@ -1141,6 +1141,9 @@ Integer `+`, `-`, `*` and unary `-` trap when the result does not fit the
 type. `/` and `%` trap on a zero divisor and when the signed minimum is
 divided by `-1`. Integer division truncates toward zero, and `%` takes the
 sign of its left operand. The `&+`, `&-` and `&*` forms wrap.
+`x << n` and `x >> n` trap when `n` is negative or not below the bit width
+of their type. Otherwise `<<` drops the bits shifted out, and `>>` shifts in
+copies of the sign bit for a signed `x` and zeros for an unsigned one.
 `T.truncating(x)` keeps the low bits of `x`. A trap is a panic (3.7).
 
 Stage0 lowers checked programs to a typed MIR that makes this order

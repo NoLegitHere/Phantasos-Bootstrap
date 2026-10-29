@@ -149,6 +149,12 @@ fun main(): Int {
     CHECK(traps("fun minus(): Int = -1\nfun main(): Int = (-9223372036854775807 - 1) / minus()\n"));
     CHECK(traps("fun main(): Int {\n    let x: Int32 = -2147483647 - 1\n    return Int(-x)\n}\n"));
     CHECK(traps("fun main(): Int {\n    let x: Int16 = 300\n    return Int(x * x)\n}\n"));
+    // Shifts drop the bits shifted out; `>>` keeps the sign of a signed value,
+    // and they bind tighter than `+`. The amount must be below the width.
+    CHECK(result("fun id(x: Int): Int = x\nfun main(): Int {\n    let a: UInt8 = 0b1011_0001\n    let s: Int8 = -64\n    let w: UInt64 = 0xF000_0000_0000_0001\n    var h: Int32 = -1\n    h <<= 31\n    var u: UInt16 = 0x8001\n    u >>= 15\n    let big: Int = -9223372036854775807 - 1\n    var r = Int(a << 1) + Int(a >> 4) * 1000 + Int(s >> 2) * 100000 + Int(s << 1)\n    r += Int.truncating(w >> 63) + Int(u) * 10 + Int(h >> 30) + (big >> 63) + id(1) << 4\n    return r\n}\n") == -1589006);
+    CHECK(traps("fun width(): Int = 64\nfun main(): Int = 1 << width()\n"));
+    CHECK(traps("fun minus(): Int = -1\nfun main(): Int = 8 >> minus()\n"));
+    CHECK(traps("fun main(): Int {\n    var x: UInt8 = 1\n    x <<= 8\n    return 0\n}\n"));
 }
 
 void short_circuit() {

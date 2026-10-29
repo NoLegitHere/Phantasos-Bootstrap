@@ -1017,7 +1017,7 @@ stored-field initialization and global initialization order.
 
 This section describes an implementation limit of stage0, not a language rule.
 Stage0's first native backend lowers only a subset of scalars, plain
-structs, generic functions and structs, and interfaces used as bounds. The `gate` command
+structs and enums, generic functions and structs, and interfaces used as bounds. The `gate` command
 runs `check` first. If `check` succeeds, `gate` reports every construct outside
 the subset, so that nothing half-checked reaches code generation:
 
@@ -1031,9 +1031,12 @@ the subset, so that nothing half-checked reaches code generation:
   conventions or defaults.
   It has no attributes, its conformances name plain interfaces, and its body holds only instance
   methods, `fun` or `mut fun`: no static methods, body fields, `init` or
-  `deinit`. It cannot hold itself through its fields, directly, through
-  other structs or through their type arguments; holding itself inline is
-  `E0442` in any program (3.37).
+  `deinit`. A plain enum is not generic, has no attributes, conformances
+  or `where` clause, and its body holds only cases, at least one. A struct
+  or enum can hold itself through an array or a function type; holding
+  itself inline is `E0442` in any program (3.37). A generic struct cannot
+  hold itself with bigger type arguments, as `struct S<T>(kids: [S<[T]>])`
+  does, since its instances would need layouts without end.
   A plain interface is not generic, extends no other interface and has no
   attributes or `where` clause. Its body holds only instance methods that are
   not generic, with or without a default body. Type parameter bounds may
@@ -1047,13 +1050,13 @@ the subset, so that nothing half-checked reaches code generation:
   locals, arguments, results and fields. A plain struct whose fields all have
   value types of the subset is a value type too, and so is an instance of a
   generic one whose type arguments are value types of the subset; a struct
-  with a field of any other type is rejected along with the field. So is a non-optional
+  with a field of any other type is rejected along with the field. A plain
+  enum whose payload fields all have value types of the subset is a value
+  type as well. So is a non-optional
   tuple whose elements all have value types of the subset, an array whose
   element type is a value type of the subset, and a
   non-optional, non-throwing function type whose parameters have value types
-  of the subset and whose result is a type of the subset. A struct cannot
-  take or return itself through a function type, an optional or an array in
-  its fields either. Inside a generic function or struct, its own type parameters are
+  of the subset and whose result is a type of the subset. Inside a generic function or struct, its own type parameters are
   value types as well.
 - **Statements.** `let` and `var` locals, with or without an initializer;
   assignment and compound assignment to locals, to `self` in a `mut fun`,
@@ -1067,21 +1070,22 @@ the subset, so that nothing half-checked reaches code generation:
   subset (not `Unit` or `Never`), `print`
   (3.27), integer conversions, primary constructors of supported structs,
   reads of their fields, calls to their methods with an explicit or implicit
-  receiver, `self` and bare field names inside methods, tuple literals and
+  receiver, `self` and bare field names inside methods, enum cases (3.34),
+  tuple literals and
   `.0` element reads, array literals, `a[i]` element reads, `count`,
   `isEmpty`, `append` and `removeLast` (3.33), top-level functions named as values (3.14), generic
   ones included, with inferred or explicit type arguments, closures
   (3.29) and calls of function values, unary `-`, `!` and `~`, arithmetic including
   the wrapping forms, `&`, `|`, `^`, `<<`, `>>`, comparisons, `&&` and `||`, `none`, `??`, `!`,
   `?.` on struct fields, on `count` and `isEmpty` and on calls of struct methods that are not generic or
-  `mut fun`, and `==` and `!=` on optionals whose innermost type is a scalar other than
-  `String`. Used `if` and block
+  `mut fun`, `==` and `!=` on enums without payloads and on optionals whose innermost type is
+  such an enum or a scalar other than `String`, and on any optional enum against `none`. Used `if` and block
   results are allowed where their type is known (3.24).
 
 Everything else reports `E0600`. That includes `defer`,
 `throw`, `match`, `unsafe` blocks, operators on strings, string interpolation,
 floating-point values, `?.` calls of `append` and `removeLast`, comparisons of tuples, of
-arrays and of optionals of anything but scalars, `?.` calls of generic, interface or `mut fun` methods, classes, enums, values of an interface type, generic
+arrays and of optionals of anything but scalars, `?.` calls of generic, interface or `mut fun` methods, classes, generic enums, enum methods, values of an interface type, generic
 interfaces, interfaces that extend others, `where` clauses, members other
 than struct fields, method calls, `count` and `isEmpty`, method values, globals, operators on function values,
 and values of `where`-constrained functions. A closure's body is
@@ -1474,7 +1478,8 @@ which types clone structurally, like `Copy` (3.29):
 
 - `String`, and every `Copy` type, clones;
 - a tuple, optional or array clones when its parts do;
-- a non-generic struct clones when all of its stored fields do.
+- a non-generic struct clones when all of its stored fields do, and a
+  non-generic enum when all of its payload fields do.
 
 Classes, generic parameters, instances of generic structs and
 reference types do not clone yet. Calling `clone()` on a value whose type has
@@ -1488,7 +1493,8 @@ usable, and the result is a new value that moves like any other. A literal
 receiver takes its default type first, so `7.clone()` is an `Int`. In
 stage0's generated code a clone copies the value's words, except that each
 array in it gets new memory holding clones of its elements, so changing one
-never changes the other.
+never changes the other. A value that holds itself through an array is
+cloned by a function of its own, `$clone<T>`.
 
 ## 3.32 Exclusive access [Core]
 
@@ -1589,10 +1595,12 @@ that is not one of its cases is `E0450`.
 Calling a case that has no payload, or naming a case that has one without
 calling it, is `E0413`.
 
-`==` and `!=` compare two values of an enum whose cases carry no payload;
-either side can be `.case`. Comparing different types is `E0400`. Equality
-of enums with payloads is not checked yet, like other composite
-equality (3.28). Generic enums are not checked yet.
+`==` and `!=` compare two values of an enum whose cases carry no payload,
+or optionals of one; either side can be `.case`. Any optional enum also
+compares with `none`, which tests only whether it holds a value. Comparing
+different types is `E0400`. Other equality of enums with payloads is not
+checked yet, like other composite equality (3.28). Generic enums are not
+checked yet.
 
 ## 3.35 Match patterns [Core]
 

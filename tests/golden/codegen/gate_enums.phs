@@ -1,0 +1,48 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Enums stage0 cannot compile yet: generic ones, ones with methods, without
+// cases or implementing interfaces, payloads of unsupported types, and 'match'.
+// A struct that holds a rejected enum is rejected too.
+enum Opt<T> {
+    some(T)
+    nothing
+}
+enum Real {
+    value(Float64)
+    nothing
+}
+struct HoldsReal(r: Real)
+enum Shape {
+    circle(Int)
+    fun area(): Int = 1
+}
+enum Empty {}
+interface Named { fun name(): Int }
+enum Tagged: Named {
+    a
+    fun name(): Int = 1
+}
+enum Tok {
+    num(Int)
+    plus
+}
+fun main(): Int {
+    let t = Tok.plus
+    return match t {
+        .num(n) -> n
+        .plus -> 0
+    }
+}

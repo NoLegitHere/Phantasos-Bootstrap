@@ -1,21 +1,18 @@
-gate_arrays.phs:20:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   20 | struct Tree(let kids: [Tree])
-      |        ^^^^
-gate_arrays.phs:25:5: error[E0600]: stage0 code generation does not support '?.' calls of 'append' and 'removeLast' yet
-   25 |     maybe?.append(4)
+gate_arrays.phs:22:5: error[E0600]: stage0 code generation does not support '?.' calls of 'append' and 'removeLast' yet
+   22 |     maybe?.append(4)
       |     ^^^^^^^^^^^^^
-gate_arrays.phs:26:16: error[E0600]: stage0 code generation does not support '?.' calls of 'append' and 'removeLast' yet
-   26 |     let last = maybe?.removeLast()
+gate_arrays.phs:23:16: error[E0600]: stage0 code generation does not support '?.' calls of 'append' and 'removeLast' yet
+   23 |     let last = maybe?.removeLast()
       |                ^^^^^^^^^^^^^^^^^
-gate_arrays.phs:27:9: error[E0600]: stage0 code generation does not support locals of type 'Unit' yet
-   27 |     for u in [()] {}
+gate_arrays.phs:24:9: error[E0600]: stage0 code generation does not support locals of type 'Unit' yet
+   24 |     for u in [()] {}
       |         ^
-gate_arrays.phs:28:22: error[E0600]: stage0 code generation does not support comparisons of arrays yet
-   28 |     let same: Bool = a == [1, 2]
+gate_arrays.phs:25:22: error[E0600]: stage0 code generation does not support comparisons of arrays yet
+   25 |     let same: Bool = a == [1, 2]
       |                      ^^^^^^^^^^^
-gate_arrays.phs:30:25: error[E0600]: stage0 code generation does not support comparisons of arrays yet
-   30 |     let missing: Bool = o != none
+gate_arrays.phs:27:25: error[E0600]: stage0 code generation does not support comparisons of arrays yet
+   27 |     let missing: Bool = o != none
       |                         ^^^^^^^^^
-gate_arrays.phs:31:9: error[E0600]: stage0 code generation does not support values of type '[Unit]' yet
-   31 |     let units: [Unit] = []
+gate_arrays.phs:28:9: error[E0600]: stage0 code generation does not support values of type '[Unit]' yet
+   28 |     let units: [Unit] = []
       |         ^^^^^

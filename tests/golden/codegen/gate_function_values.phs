@@ -27,8 +27,6 @@ fun accepted(f: fun(Int) -> Int): fun() -> Never {
     return if pair.0(f(1)) > 0 { stop } else { stop }
 }
 
-struct Holder(f: fun(Holder) -> Int)
-
 fun optional(f: fun(Int) -> Unit?) {}
 
 fun compared(): Bool = one == one

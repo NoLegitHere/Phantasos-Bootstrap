@@ -181,6 +181,26 @@ private:
                     regs[inst.dst.id] = aggregates_.size() - 1;
                     continue;
                 }
+                if (inst.op == Op::Case) {
+                    // Every field but the tag and the case's payload is zero.
+                    const Type type = fun.regs[inst.dst.id];
+                    CHECK(mir::is_aggregate(type));
+                    const auto& layout = program_.layouts[mir::layout_index(type)];
+                    CHECK(layout.kind == mir::Layout::Enum && inst.imm < layout.cases.size());
+                    const usize first = layout.payloads[inst.imm];
+                    const usize last = inst.imm + 1 < layout.payloads.size() ? layout.payloads[inst.imm + 1] : layout.fields.size();
+                    CHECK(inst.args.size() == last - first);
+                    std::vector<u64> fields;
+                    for (const Type field : layout.fields) fields.push_back(zero(field));
+                    fields.front() = inst.imm;
+                    for (usize i = 0; i < inst.args.size(); ++i) {
+                        CHECK(fun.regs[inst.args[i].id] == layout.fields[first + i]);
+                        fields[first + i] = regs[inst.args[i].id];
+                    }
+                    aggregates_.push_back(std::move(fields));
+                    regs[inst.dst.id] = aggregates_.size() - 1;
+                    continue;
+                }
                 if (inst.op == Op::Array) {
                     const Type type = fun.regs[inst.dst.id];
                     CHECK(mir::is_aggregate(type));
@@ -354,7 +374,7 @@ private:
                     case Op::Truncate: out = normalize(type, a); break;
                     case Op::Call: case Op::Print: case Op::Make: case Op::Field: case Op::With:
                     case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None:
-                    case Op::Array: case Op::Load: case Op::Store: case Op::Reserve: case Op::Allocate: break;
+                    case Op::Array: case Op::Load: case Op::Store: case Op::Reserve: case Op::Allocate: case Op::Case: break;
                 }
                 if (trap) return {true, 0, trap};
                 regs[inst.dst.id] = out;

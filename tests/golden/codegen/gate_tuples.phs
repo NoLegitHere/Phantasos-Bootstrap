@@ -13,10 +13,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Tuples outside the subset: comparisons, optional tuples, Unit or rejected
-// elements, and structs that contain themselves through a tuple element.
-
-struct Looped(inner: ([Looped], Int))
+// Tuples outside the subset: comparisons, optional tuples, and Unit or
+// rejected elements.
 
 fun real(t: (Float64, Int)): Int = t.1
 

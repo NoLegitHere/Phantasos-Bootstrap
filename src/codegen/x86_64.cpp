@@ -701,6 +701,23 @@ private:
         }
     }
 
+    // An enum value: zero bytes, the case's tag, then its payload fields.
+    void enum_case(const mir::Inst& inst) {
+        const auto& layout = program_.layouts[mir::layout_index(fun_->regs[inst.dst.id])];
+        zero(slot(inst.dst), layout.size);
+        as_.mov_imm(RAX, inst.imm);
+        as_.store_bytes(RBP, slot(inst.dst), RAX, size(layout.fields.front()));
+        for (usize i = 0; i < inst.args.size(); ++i) {
+            const usize index = layout.payloads[inst.imm] + i;
+            const i32 at = slot(inst.dst) + static_cast<i32>(layout.offsets[index]);
+            const Type type = layout.fields[index];
+            if (scalar(type)) {
+                as_.load(RAX, slot(inst.args[i]));
+                as_.store_bytes(RBP, at, RAX, size(type));
+            } else copy(RBP, at, RBP, slot(inst.args[i]), size(type));
+        }
+    }
+
     void field(const mir::Inst& inst) {
         const auto& layout = program_.layouts[mir::layout_index(fun_->regs[inst.a.id])];
         const i32 at = slot(inst.a) + static_cast<i32>(layout.offsets[inst.imm]);
@@ -732,6 +749,7 @@ private:
         if (inst.op == Op::Env) return env(inst);
         if (inst.op == Op::Print) return print(inst);
         if (inst.op == Op::Make) return make(inst);
+        if (inst.op == Op::Case) return enum_case(inst);
         if (inst.op == Op::Field) return field(inst);
         if (inst.op == Op::With) return with(inst);
         if (inst.op == Op::None) return zero(slot(inst.dst), size(fun_->regs[inst.dst.id]));
@@ -804,7 +822,7 @@ private:
             }
             case Op::Call: case Op::Str: case Op::Print: case Op::Make: case Op::Field: case Op::With:
             case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None:
-            case Op::Array: case Op::Load: case Op::Store: case Op::Reserve: case Op::Allocate: break;
+            case Op::Array: case Op::Load: case Op::Store: case Op::Reserve: case Op::Allocate: case Op::Case: break;
         }
         as_.store(slot(inst.dst), RAX);
     }

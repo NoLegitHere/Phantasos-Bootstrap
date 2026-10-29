@@ -130,7 +130,7 @@ public:
         functions_.insert(methods.begin(), methods.end());
         std::vector<const FunItem*> mains;
         for (const Item* item : file.items) {
-            if (item->kind == ItemKind::Struct || item->kind == ItemKind::Interface) continue;
+            if (item->kind == ItemKind::Struct || item->kind == ItemKind::Interface || item->kind == ItemKind::Enum) continue;
             const auto* fun = as<FunItem>(item);
             if (!fun) {
                 unsupported(item->kind == ItemKind::Extern ? item->span : item->name.span, item_name(item->kind));
@@ -235,17 +235,25 @@ private:
 
     // A struct is supported when it is a plain value type whose fields all
     // come from its primary constructor and have supported types; a generic
-    // struct's fields may hold its type parameters.
-    // Structs that contain themselves, directly or not, have no finite layout.
+    // struct's fields may hold its type parameters. An enum is supported
+    // when it is not generic, has cases and only cases, and its payload
+    // fields have supported types. They may hold themselves through arrays
+    // and function types; check rejects holding themselves inline (E0442).
     void structs(const File& file) {
-        std::vector<const TypeDeclItem*> candidates;
+        std::vector<const TypeDeclItem*> candidates, enums;
         for (const Item* item : file.items) {
-            const auto* type = item->kind == ItemKind::Struct ? as_type_decl(item) : nullptr;
-            if (type && plain(*type)) candidates.push_back(type);
+            const auto* type = as_type_decl(item);
+            if (type && item->kind == ItemKind::Struct && plain(*type)) candidates.push_back(type);
+            if (type && item->kind == ItemKind::Enum && plain_enum(*type)) enums.push_back(type);
         }
         for (const auto* type : candidates) structs_.insert(items_.at(type).value);
-        recursive(candidates);
-        // A field of a rejected struct's type rejects its owner too.
+        for (const auto* type : enums) enums_.insert(items_.at(type).value);
+        expanding(candidates);
+        // A field of a rejected struct's or enum's type rejects its owner too.
+        const auto reject = [&](std::unordered_set<usize>& set, const TypeDeclItem* type) {
+            set.erase(items_.at(type).value);
+            composites_.clear();
+        };
         for (bool changed = true; changed;) {
             changed = false;
             for (const auto* type : candidates) {
@@ -255,14 +263,145 @@ private:
                 for (const auto& param : type->ctor_params) {
                     const auto field = types_.binding(values_.at(param.name.span.lo));
                     if (stored(param.type->span, field, "fields")) continue;
-                    structs_.erase(items_.at(type).value);
-                    composites_.clear();
+                    reject(structs_, type);
                     changed = true;
                     break;
                 }
             }
+            generics_.clear();
+            for (const auto* type : enums) {
+                if (!enums_.contains(items_.at(type).value)) continue;
+                bool supported = true;
+                for (const Item* member : type->members) {
+                    const auto* entry = as<EnumCaseItem>(member);
+                    const auto* signature = types_.signature(items_.at(member));
+                    for (usize i = 0; supported && i < entry->fields.size(); ++i)
+                        supported = signature && i < signature->parameters.size() &&
+                                    stored(entry->fields[i].type->span, signature->parameters[i], "payload fields");
+                    if (!supported) break;
+                }
+                if (supported) continue;
+                reject(enums_, type);
+                changed = true;
+            }
         }
-        generics_.clear();
+    }
+
+    // Rejects every generic struct that holds itself, through any of its
+    // fields, with bigger type arguments, as `struct S<T>(kids: [S<[T]>])`
+    // does: its instances would need layouts without end. A field that names
+    // a generic struct passes each type parameter in that argument on to the
+    // struct's parameter, unchanged when the argument is the parameter
+    // itself and grown otherwise; a struct is rejected when a parameter
+    // reaches itself through a grown step.
+    void expanding(const std::vector<const TypeDeclItem*>& candidates) {
+        std::unordered_map<usize, const TypeDeclItem*> generic;
+        for (const auto* type : candidates)
+            if (!type->generics.empty()) generic.emplace(items_.at(type).value, type);
+        struct Edge { usize to; bool grows; const TypeDeclItem* owner; };
+        std::unordered_map<usize, std::vector<Edge>> edges;  // type parameter to the parameters it is passed to
+        // The type parameters a type mentions, each once.
+        const auto mentioned = [&](ScalarType root) {
+            std::vector<usize> out;
+            std::vector<ScalarType> work{root};
+            std::unordered_set<u32> seen;
+            while (!work.empty()) {
+                const auto type = work.back();
+                work.pop_back();
+                if (type.kind == ScalarType::TypeParameter) {
+                    const usize id = types_.descriptor(type)->declaration.value;
+                    if (std::ranges::find(out, id) == out.end()) out.push_back(id);
+                    continue;
+                }
+                if (type.kind != ScalarType::Tuple && type.kind != ScalarType::Function &&
+                    type.kind != ScalarType::Nominal && type.kind != ScalarType::Array)
+                    continue;
+                if (!seen.insert(type.detail).second) continue;
+                const auto* descriptor = types_.descriptor(type);
+                if (type.kind == ScalarType::Array) work.push_back(descriptor->element);
+                if (type.kind == ScalarType::Function) work.push_back(descriptor->result);
+                if (type.kind == ScalarType::Nominal)
+                    work.insert(work.end(), descriptor->arguments.begin(), descriptor->arguments.end());
+                else
+                    work.insert(work.end(), descriptor->parameters.begin(), descriptor->parameters.end());
+            }
+            return out;
+        };
+        for (const auto& [id, type] : generic) {
+            std::vector<ScalarType> work;
+            for (const auto& param : type->ctor_params) work.push_back(types_.binding(values_.at(param.name.span.lo)));
+            std::unordered_set<u32> seen;
+            while (!work.empty()) {
+                const auto field = work.back();
+                work.pop_back();
+                if (field.kind != ScalarType::Tuple && field.kind != ScalarType::Function &&
+                    field.kind != ScalarType::Nominal && field.kind != ScalarType::Array)
+                    continue;
+                if (!seen.insert(field.detail).second) continue;
+                const auto* descriptor = types_.descriptor(field);
+                if (field.kind == ScalarType::Array) work.push_back(descriptor->element);
+                if (field.kind == ScalarType::Function) work.push_back(descriptor->result);
+                if (field.kind != ScalarType::Nominal) {
+                    work.insert(work.end(), descriptor->parameters.begin(), descriptor->parameters.end());
+                    continue;
+                }
+                work.insert(work.end(), descriptor->arguments.begin(), descriptor->arguments.end());
+                const auto target = generic.find(descriptor->declaration.value);
+                if (target == generic.end()) continue;
+                const auto& params = target->second->generics;
+                for (usize i = 0; i < params.size() && i < descriptor->arguments.size(); ++i) {
+                    const auto argument = descriptor->arguments[i];
+                    const usize to = values_.at(params[i].name.span.lo).value;
+                    const bool same = argument.kind == ScalarType::TypeParameter && !argument.optional_depth;
+                    for (const usize from : mentioned(argument)) edges[from].push_back({to, !same, type});
+                }
+            }
+        }
+        // A grown step from a to b lies on a cycle when b reaches a.
+        std::unordered_set<const TypeDeclItem*> rejected;
+        for (const auto& [from, out] : edges) {
+            for (const auto& edge : out) {
+                if (!edge.grows || rejected.contains(edge.owner)) continue;
+                std::vector<usize> work{edge.to};
+                std::unordered_set<usize> reached{edge.to};
+                while (!work.empty() && !reached.contains(from)) {
+                    const usize at = work.back();
+                    work.pop_back();
+                    if (const auto it = edges.find(at); it != edges.end())
+                        for (const auto& next : it->second)
+                            if (reached.insert(next.to).second) work.push_back(next.to);
+                }
+                if (reached.contains(from)) rejected.insert(edge.owner);
+            }
+        }
+        for (const auto* type : candidates) {
+            if (!rejected.contains(type)) continue;
+            unsupported(type->name.span, "generic structs that hold themselves with bigger type arguments");
+            structs_.erase(items_.at(type).value);
+            composites_.clear();
+        }
+    }
+
+    bool plain_enum(const TypeDeclItem& type) {
+        const bool before = ok_;
+        ok_ = true;
+        if (!type.attrs.empty()) unsupported(type.attrs.front().span, "attributes");
+        if (!type.generics.empty()) unsupported(type.generics.front().name.span, "generic enums");
+        if (!type.supers.empty()) unsupported(type.supers.front().type->span, "enums that implement interfaces");
+        if (!type.where.empty()) unsupported(type.where.front().type->span, "'where' clauses");
+        bool cases = false;
+        for (const Item* member : type.members) {
+            if (member->kind == ItemKind::EnumCase) {
+                cases = true;
+                continue;
+            }
+            unsupported(member->name.sym.empty() ? member->span : member->name.span,
+                        member->kind == ItemKind::Fun ? "enum methods" : member_name(member->kind));
+        }
+        if (!cases) unsupported(type.name.span, "enums without cases");
+        const bool result = ok_;
+        ok_ = ok_ && before;
+        return result;
     }
 
     bool plain(const TypeDeclItem& type) {
@@ -298,78 +437,6 @@ private:
         }
     }
 
-    // Rejects every struct on a cycle of fields, depth first and without recursion.
-    void recursive(const std::vector<const TypeDeclItem*>& candidates) {
-        std::unordered_map<usize, const TypeDeclItem*> by_id;
-        for (const auto* type : candidates) by_id.emplace(items_.at(type).value, type);
-        const auto children = [&](const TypeDeclItem& type) {
-            std::vector<usize> out;
-            for (const auto& param : type.ctor_params) {
-                // A field holds the structs inside its tuples too, and,
-                // conservatively, those its arrays hold, those its function
-                // types take or return and those a generic struct's type
-                // arguments name.
-                // Composite types can share parts, so each is walked once.
-                std::vector<ScalarType> held{types_.binding(values_.at(param.name.span.lo))};
-                std::unordered_set<usize> seen;
-                while (!held.empty()) {
-                    // An optional holds its value inline.
-                    const auto field = held.back().scalar();
-                    held.pop_back();
-                    if ((field.kind == ScalarType::Tuple || field.kind == ScalarType::Function ||
-                         field.kind == ScalarType::Nominal || field.kind == ScalarType::Array) &&
-                        !seen.insert(field.detail).second)
-                        continue;
-                    const auto* descriptor = types_.descriptor(field);
-                    if (field.kind == ScalarType::Array) held.push_back(descriptor->element);
-                    if (field.kind == ScalarType::Tuple || field.kind == ScalarType::Function)
-                        held.insert(held.end(), descriptor->parameters.begin(), descriptor->parameters.end());
-                    if (field.kind == ScalarType::Function) held.push_back(descriptor->result);
-                    else if (field.kind == ScalarType::Nominal) {
-                        held.insert(held.end(), descriptor->arguments.begin(), descriptor->arguments.end());
-                        if (by_id.contains(descriptor->declaration.value)) out.push_back(descriptor->declaration.value);
-                    }
-                }
-            }
-            return out;
-        };
-        enum class Mark : u8 { New, Active, Done };
-        std::unordered_map<usize, Mark> marks;
-        std::unordered_set<usize> cyclic;
-        for (const auto* root : candidates) {
-            const usize start = items_.at(root).value;
-            if (marks[start] != Mark::New) continue;
-            struct Frame { usize id; std::vector<usize> next; usize at = 0; };
-            std::vector<Frame> stack{{start, children(*root)}};
-            marks[start] = Mark::Active;
-            while (!stack.empty()) {
-                auto& frame = stack.back();
-                if (frame.at == frame.next.size()) {
-                    marks[frame.id] = Mark::Done;
-                    stack.pop_back();
-                    continue;
-                }
-                const usize next = frame.next[frame.at++];
-                if (marks[next] == Mark::Active) {
-                    // Everything from next up to the top of the stack is on the cycle.
-                    for (auto it = stack.rbegin(); it != stack.rend(); ++it) {
-                        cyclic.insert(it->id);
-                        if (it->id == next) break;
-                    }
-                } else if (marks[next] == Mark::New) {
-                    marks[next] = Mark::Active;
-                    stack.push_back({next, children(*by_id.at(next))});
-                }
-            }
-        }
-        for (const auto* type : candidates) {
-            if (!cyclic.contains(items_.at(type).value)) continue;
-            unsupported(type->name.span, "recursive structs");
-            structs_.erase(items_.at(type).value);
-            composites_.clear();
-        }
-    }
-
     bool supported_type(ScalarType type) const {
         // An optional holds a value, so its value type cannot be 'Unit' or 'Never'.
         if (type.optional_depth)
@@ -402,7 +469,8 @@ private:
             return generics_.contains(types_.descriptor(type)->declaration.value);
         if (type.kind != ScalarType::Nominal || type.optional_depth) return false;
         const auto* descriptor = types_.descriptor(type);
-        if (!descriptor || !structs_.contains(descriptor->declaration.value)) return false;
+        if (!descriptor || !(structs_.contains(descriptor->declaration.value) || enums_.contains(descriptor->declaration.value)))
+            return false;
         if (descriptor->arguments.empty()) return true;
         // A generic struct's instance holds values of its arguments, which
         // can share parts like composite types.
@@ -659,9 +727,15 @@ private:
                 return;
             }
             case ExprKind::Call: call(*cast<CallExpr>(&expr), work); return;
+            case ExprKind::ImplicitMember:
+                // `.plus`, a case of a supported enum.
+                if (!case_value(expr)) unsupported(expr.span, expr_name(expr.kind));
+                return;
             case ExprKind::Member: {
-                // Field reads of supported structs, and `count` and `isEmpty` of arrays.
+                // Field reads of supported structs, cases of supported enums,
+                // and `count` and `isEmpty` of arrays.
                 const auto& member = *cast<MemberExpr>(&expr);
+                if (case_value(expr)) return;
                 if (types_.array_member(&member)) {
                     work.push_back({member.base, true});
                     return;
@@ -761,11 +835,19 @@ private:
             case ExprKind::If: case ExprKind::Member: case ExprKind::SelfValue: case ExprKind::Tuple:
             case ExprKind::TupleField: case ExprKind::Closure: case ExprKind::GenericInst: case ExprKind::None:
             case ExprKind::Unwrap: case ExprKind::OptMember: case ExprKind::Array: case ExprKind::Index:
+            case ExprKind::ImplicitMember:
                 return true;
             default:
                 unsupported(expr.span, expr_name(expr.kind));
                 return false;
         }
+    }
+
+    // Whether a member expression names a case without a payload.
+    bool case_value(const Expr& expr) const {
+        const auto* record = types_.member(&expr);
+        return record && record->state == ResolutionState::Resolved && record->candidates.size() == 1 &&
+               resolution_.binding(record->candidates.front()).kind == BindingKind::EnumCase;
     }
 
     bool mentions_rejected(const Expr& root) const {
@@ -885,6 +967,15 @@ private:
             if (checked->state != CallState::Resolved || !supported_type(types_.expression(&call)))
                 unsupported_type(call.span, types_.expression(&call));
             else work.push_back({checked->receiver, true});
+            return;
+        }
+        if (checked && checked->kind == CallKind::EnumCase) {
+            // A case of a supported enum, with its payload.
+            if (checked->state != CallState::Resolved || !supported_type(types_.expression(&call))) {
+                unsupported(call.callee->span, "cases other than those of supported enums");
+                return;
+            }
+            for (usize i = call.args.size(); i-- > 0;) work.push_back({call.args[i].value, true});
             return;
         }
         if (checked && checked->kind == CallKind::NominalConstructor) {
@@ -1121,6 +1212,7 @@ private:
     mutable std::unordered_map<usize, bool> composites_;
     std::unordered_set<usize> rejected_;  // locals whose declaration was reported
     std::unordered_set<usize> structs_;   // binding IDs of supported structs
+    std::unordered_set<usize> enums_;     // binding IDs of supported enums
     std::unordered_set<usize> interfaces_;  // binding IDs of supported interfaces
     bool ok_ = true;
 };

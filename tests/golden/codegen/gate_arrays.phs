@@ -14,10 +14,7 @@
 // limitations under the License.
 
 // Arrays stage0 cannot compile yet: `append` and `removeLast` through `?.`,
-// comparisons, arrays of Unit, loops over them and structs that hold
-// themselves through an array.
-
-struct Tree(let kids: [Tree])
+// comparisons, arrays of Unit and loops over them.
 
 fun main() {
     var a = [1, 2]

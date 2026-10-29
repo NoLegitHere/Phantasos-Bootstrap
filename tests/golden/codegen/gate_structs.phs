@@ -19,9 +19,6 @@
 
 struct Empty()
 
-struct Node(value: Int, next: [Link])
-struct Link(node: Node)
-
 struct Defaulted(x: Int = 1)
 
 struct Real(x: Float64)

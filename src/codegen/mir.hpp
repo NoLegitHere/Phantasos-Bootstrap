@@ -40,7 +40,11 @@
 // holds a value, and that value; `none` is all zero bytes, so optionals of
 // equal values have equal fields. Lowering leaves the lifting of a value into
 // an optional implicit: a value stored where its optional is expected is
-// wrapped by a final pass, so every operand has its destination's type.
+// wrapped by a final pass, so every operand has its destination's type. An
+// array is an aggregate of three words: a pointer to its elements, never
+// freed, and its count and capacity. Copying an array copies those words, so
+// the copies share the elements; a store through one is seen by all, and
+// the checker's moves (3.30) keep only one in use.
 
 namespace phs::mir {
 
@@ -76,6 +80,9 @@ enum class Op : u8 {
     Closure,  // the function value of closure function callee, its environment holding args
     Env,      // captured value imm of the environment that a points to
     None,     // the `none` of optional type dst: every byte zero
+    Array,    // a new array of type dst holding args; with no args, every byte zero
+    Load,     // element b of the array a; b is a U64 below its count
+    Store,    // element b of the array a becomes args[0]; b is a U64 below its count
 };
 
 struct Inst {
@@ -87,12 +94,14 @@ struct Inst {
     u32 callee = 0;       // Call, FnRef, Closure: function index
     // Call: arguments in parameter order, a method's receiver first;
     // CallIndirect: arguments in parameter order; Make: field values;
-    // Closure: the captured values, in environment order
+    // Closure: the captured values, in environment order; Array: the
+    // elements; Store: the value stored
     std::vector<Reg> args;
 };
 
 // Panic writes its message to standard error and ends the program with exit
-// status 101; `opt!` on `none` panics with its source location.
+// status 101; `opt!` on `none` and an array index out of bounds panic with
+// their source location.
 enum class Term : u8 { Br, CondBr, Ret, Unreachable, Panic };
 
 struct Block {
@@ -127,10 +136,12 @@ inline bool is_inout(const Function& fun, u32 param) { return param < fun.inout.
 // A function type's layout has two U64 fields, code and env, and records the
 // signature that indirect calls through it follow. A closure's environment
 // has a field for each captured value, named after it. An optional's layout
-// has the fields some, a Bool, and value.
+// has the fields some, a Bool, and value. An array's layout has the fields
+// data, a U64 pointer to its elements, each element's size apart, and count
+// and capacity, both I64.
 struct Layout {
-    enum Kind : u8 { Struct, Tuple, Function, Environment, Optional };
-    std::string name;  // a struct's or closure's name, or a tuple, function or optional type's spelling
+    enum Kind : u8 { Struct, Tuple, Function, Environment, Optional, Array };
+    std::string name;  // a struct's or closure's name, or a tuple, function, optional or array type's spelling
     Kind kind = Struct;  // a tuple's fields are named 0, 1, ...
     std::vector<Type> fields;
     std::vector<std::string> names;
@@ -138,13 +149,14 @@ struct Layout {
     u32 size = 0, align = 1;
     std::vector<Type> params;  // Function: parameter types
     Type result = Type::Unit;  // Function: result type
+    Type element = Type::Unit;  // Array: element type
 };
 
 struct Program {
     std::vector<Function> functions;
     u32 main = 0;
     std::vector<std::string> strings;  // literal bytes, each distinct value once
-    std::vector<Layout> layouts;       // each struct, tuple, function and optional type once, and each environment
+    std::vector<Layout> layouts;       // each struct, tuple, function, optional and array type once, and each environment
 };
 
 std::string type_name(const Program& program, Type type);

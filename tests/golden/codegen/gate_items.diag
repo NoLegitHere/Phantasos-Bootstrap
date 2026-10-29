@@ -28,6 +28,6 @@ gate_items.phs:35:12: error[E0600]: stage0 code generation does not support 'ino
 gate_items.phs:37:23: error[E0600]: stage0 code generation does not support parameter defaults yet
    37 | fun defaults(x: Int = 1): Int = x
       |                       ^
-gate_items.phs:39:11: error[E0600]: stage0 code generation does not support values of type '[Int]' yet
-   39 | fun array(xs: [Int]): Int = xs[0]
+gate_items.phs:39:11: error[E0600]: stage0 code generation does not support values of type '[Unit]' yet
+   39 | fun units(xs: [Unit]): Int = 0
       |           ^^

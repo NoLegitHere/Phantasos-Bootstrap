@@ -1,0 +1,74 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Arrays of numbers, strings, structs, tuples and arrays: built from
+// literals, read and changed in place, and passed to functions.
+
+struct Item(let name: String, var stock: Int) {
+    mut fun restock(n: Int) { stock += n }
+}
+
+struct Shelf(var items: [Item]) {
+    mut fun sell(i: Int) { items[i].stock -= 1 }
+}
+
+fun total(xs: [Int]): Int {
+    var sum = 0
+    var i = 0
+    while i < xs.count {
+        sum += xs[i]
+        i += 1
+    }
+    return sum
+}
+
+fun report(shelf: Shelf) {
+    var i = 0
+    while i < shelf.items.count {
+        print(shelf.items[i].name)
+        print(shelf.items[i].stock)
+        i += 1
+    }
+}
+
+fun main(): Int {
+    var squares = [0, 0, 0, 0, 0]
+    var i = 0
+    while i < squares.count {
+        squares[i] = i * i
+        i += 1
+    }
+    print(total(squares))
+
+    var shelf = Shelf([Item("tea", 3), Item("jam", 1)])
+    shelf.sell(0)
+    shelf.items[1].restock(4)
+    report(shelf)
+
+    var grid = [[1, 2, 3], [4, 5, 6]]
+    grid[1][2] = 60
+    print(grid[1][2] + grid[0][0])
+
+    let pairs = [(1, "one"), (2, "two")]
+    print(pairs[1].1)
+
+    let none_yet: [Int] = []
+    print(none_yet.isEmpty)
+    let maybe: [Int]? = [7, 8, 9]
+    print(maybe?.count ?? 0)
+
+    let small: UInt8 = 2
+    return squares[small]
+}

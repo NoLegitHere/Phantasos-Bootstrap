@@ -36,6 +36,6 @@ fun inout_(x: inout Int) {}
 
 fun defaults(x: Int = 1): Int = x
 
-fun array(xs: [Int]): Int = xs[0]
+fun units(xs: [Unit]): Int = 0
 
 fun main() {}

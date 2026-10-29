@@ -128,6 +128,9 @@ std::string_view op_name(Op op) {
         case Op::Closure: return "closure";
         case Op::Env: return "env";
         case Op::None: return "none";
+        case Op::Array: return "array";
+        case Op::Load: return "load";
+        case Op::Store: return "store";
     }
     unreachable();
 }
@@ -158,7 +161,7 @@ std::string literal(std::string_view bytes) {
 std::string dump(const Program& program) {
     std::string out;
     for (const auto& layout : program.layouts) {
-        constexpr std::string_view kinds[] = {"struct", "tuple", "function", "environment", "optional"};
+        constexpr std::string_view kinds[] = {"struct", "tuple", "function", "environment", "optional", "array"};
         out += std::format("{} @{} {{", kinds[layout.kind], layout.name);
         for (usize i = 0; i < layout.fields.size(); ++i)
             out += std::format("{} {}: {} +{}", i ? "," : "", layout.names[i], type_name(program, layout.fields[i]),
@@ -170,6 +173,7 @@ std::string dump(const Program& program) {
                 out += (i ? ", " : "") + type_name(program, layout.params[i]);
             out += ") -> " + type_name(program, layout.result);
         }
+        if (layout.kind == Layout::Array) out += " element " + type_name(program, layout.element);
         out += "\n\n";
     }
     const auto reg = [](Reg r) { return std::format("%{}", r.id); };
@@ -212,7 +216,7 @@ std::string dump(const Program& program) {
                         out += ')';
                         break;
                     case Op::None: break;
-                    case Op::Make:
+                    case Op::Make: case Op::Array:
                         for (usize a = 0; a < inst.args.size(); ++a) out += (a ? ", " : " ") + reg(inst.args[a]);
                         break;
                     case Op::Field: {
@@ -225,6 +229,9 @@ std::string dump(const Program& program) {
                         out += std::format(" {}, {}, {}", reg(inst.a), layout.names[inst.imm], reg(inst.b));
                         break;
                     }
+                    case Op::Store:
+                        out += std::format(" {}, {}, {}", reg(inst.a), reg(inst.b), reg(inst.args.front()));
+                        break;
                     default:
                         out += ' ' + reg(inst.a);
                         if (inst.b.valid()) out += ", " + reg(inst.b);

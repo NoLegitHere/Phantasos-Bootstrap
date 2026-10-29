@@ -698,6 +698,51 @@ void optional_chaining() {
     CHECK(traps(point + "fun main(): Int {\n    let p: P? = P(1, none)\n    return p?.plus(boom()) ?? 0\n}\n"));
 }
 
+void arrays() {
+    Frontend f;
+    const auto text = f.dump("fun main(): Int {\n    let a = [1, 2]\n    return a[1]\n}\n");
+    // Three words; a literal allocates its elements; a read checks its bounds first.
+    CHECK(text.starts_with("array @[Int] { data: u64 +0, count: i64 +8, capacity: i64 +16 } size 24 align 8 "
+                           "element i64\n\n"));
+    CHECK(text.contains("= array %0, %1\n") && text.contains("= load %3, %5\n") && text.contains("= lt "));
+    CHECK(text.contains("    panic \"panic: array index out of bounds at mir.phs:3:12\\n\"\n"));
+    // Reads, stores and compound assignment, through fields, tuple elements and nested arrays.
+    CHECK(result("struct P(var x: Int, var t: (Int, [Int]))\n"
+                 "fun main(): Int {\n    var a = [1, 2, 3]\n    a[0] = 10\n    a[1] += 5\n"
+                 "    var ps = [P(1, (2, [3])), P(4, (5, [6, 7]))]\n    ps[1].x = 40\n    ps[1].t.1[1] *= 10\n"
+                 "    var grid = [[1], [2, 3]]\n    grid[1][0] = 20\n"
+                 "    return a[0] + a[1] + a[2] + ps[1].x + ps[1].t.1[1] + grid[1][0] + grid[0][0]\n}\n") ==
+          10 + 7 + 3 + 40 + 70 + 20 + 1);
+    // count and isEmpty, also through `?.`, and elements lifted into optionals.
+    CHECK(result("fun b(x: Bool): Int = if x { 1 } else { 0 }\n"
+                 "fun main(): Int {\n    let e: [Int] = []\n    let o: [Int]? = [7, 8]\n    let n: [Int]? = none\n"
+                 "    var m: [Int?] = [1, none]\n    m[1] = 5\n"
+                 "    return e.count + b(e.isEmpty) * 10 + (o?.count ?? 0) * 100 + (n?.count ?? 3) * 1000 +\n"
+                 "        b(o?.isEmpty ?? true) * 10000 + m[1]! * 100000\n}\n") ==
+          0 + 10 + 200 + 3000 + 0 + 500000);
+    // Indices of any integer type; a negative one is out of bounds.
+    CHECK(result("fun main(): Int {\n    let a = [5, 6, 7]\n    let i: UInt8 = 2\n    let j: Int16 = 1\n"
+                 "    return a[i] + a[j] + a[UInt(0)]\n}\n") == 7 + 6 + 5);
+    Frontend p;
+    const auto outcome = p.run("fun main(): Int {\n    let a = [5]\n    let i: Int8 = -1\n    return a[i]\n}\n");
+    CHECK(outcome.trapped && outcome.trap == 5);
+    CHECK(traps("fun main(): Int {\n    let a: [Int] = []\n    return a[0]\n}\n"));
+    // A store's index runs before its value, and its bounds check after.
+    Frontend order;
+    const auto ordered = order.run("fun at(): Int {\n    print(\"index\")\n    return 1\n}\n"
+                                   "fun value(): Int {\n    print(\"value\")\n    return 7\n}\n"
+                                   "fun main(): Int {\n    var a = [0, 0]\n    a[at()] = value()\n    return a[1]\n}\n");
+    CHECK(!ordered.trapped && ordered.value == 7 && ordered.output == "index\nvalue\n");
+    Frontend q;
+    CHECK(q.run("fun boom(): Int = 1 / 0\nfun main() {\n    var a = [1]\n    a[5] = boom()\n}\n").trap == 2);
+    // `mut fun` on an element and stores into the receiver's array; arrays as arguments and results.
+    CHECK(result("struct C(var n: Int) {\n    mut fun bump() { n += 1 }\n}\n"
+                 "struct Bag(var items: [C]) {\n    mut fun set(i: Int, v: Int) { items[i].n = v }\n}\n"
+                 "fun make(): [String] = [\"x\", \"yz\"]\nfun total(cs: [C]): Int = cs[0].n + cs[1].n\n"
+                 "fun main(): Int {\n    var b = Bag([C(1), C(2)])\n    b.items[1].bump()\n    b.set(0, 10)\n"
+                 "    print(make()[1])\n    return total(b.items)\n}\n") == 10 + 3);
+}
+
 int main() {
     target_program();
     control_flow();
@@ -714,6 +759,7 @@ int main() {
     generic_structs();
     optionals();
     optional_chaining();
+    arrays();
     rejected_files();
     long_trees();
     std::println("mir tests passed");

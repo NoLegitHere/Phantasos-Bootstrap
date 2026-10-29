@@ -1,0 +1,122 @@
+struct @Point { x: i64 +0, y: i64 +8 } size 16 align 8
+
+optional @i8? { some: bool +0, value: i8 +1 } size 2 align 1
+
+array @[Int8?] { data: u64 +0, count: i64 +8, capacity: i64 +16 } size 24 align 8 element @i8?
+
+array @[Point] { data: u64 +0, count: i64 +8, capacity: i64 +16 } size 24 align 8 element @Point
+
+fun @main() -> i64 entry {
+bb0:
+    %0: i8 = const 1
+    %1: @i8? = none
+    %63: bool = const true
+    %64: @i8? = make %63, %0
+    %2: @[Int8?] = array %64, %1
+    %3: @[Int8?] = copy %2
+    %4: i64 = const 1
+    %5: u64 = truncate %4
+    %6: i8 = const 2
+    %7: i64 = field %3, count
+    %8: u64 = widen %7
+    %9: bool = lt %5, %8
+    condbr %9, bb1, bb20
+bb1:
+    %65: bool = const true
+    %66: @i8? = make %65, %6
+    store %3, %5, %66
+    %10: i64 = const 1
+    %11: i64 = const 2
+    %12: @Point = make %10, %11
+    %13: @[Point] = array %12
+    %14: @[Point] = copy %13
+    %15: i64 = const 0
+    %16: u64 = truncate %15
+    %17: i64 = field %14, count
+    %18: u64 = widen %17
+    %19: bool = lt %16, %18
+    condbr %19, bb2, bb19
+bb2:
+    %20: @Point = load %14, %16
+    %21: i64 = field %20, y
+    %22: i64 = const 3
+    %23: i64 = add %21, %22
+    %24: i64 = field %14, count
+    %25: u64 = widen %24
+    %26: bool = lt %16, %25
+    condbr %26, bb3, bb18
+bb3:
+    %27: @Point = load %14, %16
+    %27: @Point = with %27, y, %23
+    %28: i64 = field %14, count
+    %29: u64 = widen %28
+    %30: bool = lt %16, %29
+    condbr %30, bb4, bb17
+bb4:
+    store %14, %16, %27
+    %31: @[Point] = array
+    %32: @[Point] = copy %31
+    %33: i64 = field %32, count
+    %35: i64 = const 0
+    %34: bool = eq %33, %35
+    condbr %34, bb5, bb6
+bb5:
+    %36: i64 = field %14, count
+    ret %36
+bb6:
+    %37: i64 = const 0
+    %38: u64 = truncate %37
+    %39: i64 = field %3, count
+    %40: u64 = widen %39
+    %41: bool = lt %38, %40
+    condbr %41, bb7, bb16
+bb7:
+    %42: @i8? = load %3, %38
+    %43: bool = field %42, some
+    condbr %43, bb8, bb15
+bb8:
+    %44: i8 = field %42, value
+    %45: i64 = const 1
+    %46: u64 = truncate %45
+    %47: i64 = field %3, count
+    %48: u64 = widen %47
+    %49: bool = lt %46, %48
+    condbr %49, bb9, bb14
+bb9:
+    %50: @i8? = load %3, %46
+    %51: bool = field %50, some
+    condbr %51, bb10, bb13
+bb10:
+    %52: i8 = field %50, value
+    %53: i8 = add %44, %52
+    %54: i64 = widen %53
+    %55: i64 = const 0
+    %56: u64 = truncate %55
+    %57: i64 = field %14, count
+    %58: u64 = widen %57
+    %59: bool = lt %56, %58
+    condbr %59, bb11, bb12
+bb11:
+    %60: @Point = load %14, %56
+    %61: i64 = field %60, y
+    %62: i64 = add %54, %61
+    ret %62
+bb12:
+    panic "panic: array index out of bounds at arrays.phs:28:33\n"
+bb13:
+    panic "panic: unwrapped 'none' at arrays.phs:28:24\n"
+bb14:
+    panic "panic: array index out of bounds at arrays.phs:28:24\n"
+bb15:
+    panic "panic: unwrapped 'none' at arrays.phs:28:16\n"
+bb16:
+    panic "panic: array index out of bounds at arrays.phs:28:16\n"
+bb17:
+    panic "panic: array index out of bounds at arrays.phs:25:5\n"
+bb18:
+    panic "panic: array index out of bounds at arrays.phs:25:5\n"
+bb19:
+    panic "panic: array index out of bounds at arrays.phs:25:5\n"
+bb20:
+    panic "panic: array index out of bounds at arrays.phs:23:5\n"
+}

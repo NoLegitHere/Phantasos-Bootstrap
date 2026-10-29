@@ -577,8 +577,8 @@ still undergo element validation.
 
 Indexing a known non-optional array requires an integer index (or `Never`) and
 produces its element type. Invalid array/index combinations report `E0440`.
-This does not perform constant bounds evaluation; runtime bounds checks and
-lowering are pending. String, pointer and nominal indexing remain later work.
+This does not perform constant bounds evaluation; the bounds are checked when
+the program runs (3.33). String, pointer and nominal indexing remain later work.
 
 Non-generic classes, structs and actors check primary constructor arguments,
 labels and defaults using the same type rules as function calls. The result is
@@ -1047,15 +1047,16 @@ the subset, so that nothing half-checked reaches code generation:
   value types of the subset is a value type too, and so is an instance of a
   generic one whose type arguments are value types of the subset; a struct
   with a field of any other type is rejected along with the field. So is a non-optional
-  tuple whose elements all have value types of the subset, and a
+  tuple whose elements all have value types of the subset, an array whose
+  element type is a value type of the subset, and a
   non-optional, non-throwing function type whose parameters have value types
   of the subset and whose result is a type of the subset. A struct cannot
-  take or return itself through a function type or an optional in its fields
-  either. Inside a generic function or struct, its own type parameters are
+  take or return itself through a function type, an optional or an array in
+  its fields either. Inside a generic function or struct, its own type parameters are
   value types as well.
 - **Statements.** `let` and `var` locals, with or without an initializer;
   assignment and compound assignment to locals, to `self` in a `mut fun`,
-  and to fields of either at any depth, tuple elements included; tuple
+  and to fields of either at any depth, tuple and array elements included; tuple
   destructuring with `let (a, b) = e` and `var (a, b) = e`; `if`, `while`, `loop`, `break`,
   `continue` and `return`, with `if let` and `while let` conditions.
 - **Expressions.** Integer, Boolean and string literals, `()`, local and
@@ -1065,24 +1066,26 @@ the subset, so that nothing half-checked reaches code generation:
   (3.27), integer conversions, primary constructors of supported structs,
   reads of their fields, calls to their methods with an explicit or implicit
   receiver, `self` and bare field names inside methods, tuple literals and
-  `.0` element reads, top-level functions named as values (3.14), generic
+  `.0` element reads, array literals, `a[i]` element reads, `count` and
+  `isEmpty` (3.33), top-level functions named as values (3.14), generic
   ones included, with inferred or explicit type arguments, closures
   (3.29) and calls of function values, unary `-`, `!` and `~`, arithmetic including
   the wrapping forms, `&`, `|`, `^`, comparisons, `&&` and `||`, `none`, `??`, `!`,
-  `?.` on struct fields and on calls of struct methods that are not generic or
+  `?.` on struct fields, on `count` and `isEmpty` and on calls of struct methods that are not generic or
   `mut fun`, and `==` and `!=` on optionals whose innermost type is a scalar other than
   `String`. Used `if` and block
   results are allowed where their type is known (3.24).
 
 Everything else reports `E0600`. That includes shifts, `for`, `defer`,
 `throw`, `match`, `unsafe` blocks, operators on strings, string interpolation,
-floating-point values, arrays, comparisons of tuples and of optionals of
-anything but scalars, `?.` calls of generic, interface or `mut fun` methods, classes, enums, values of an interface type, generic
+floating-point values, `append` and `removeLast`, comparisons of tuples, of
+arrays and of optionals of anything but scalars, `?.` calls of generic, interface or `mut fun` methods, classes, enums, values of an interface type, generic
 interfaces, interfaces that extend others, `where` clauses, members other
-than struct fields and method calls, method values, globals, operators on function values,
+than struct fields, method calls, `count` and `isEmpty`, method values, globals, operators on function values,
 and values of `where`-constrained functions. A closure's body is
 checked like a function body. A `mut fun` call
-needs a receiver rooted in a local, `self` or a field of `self`. A local whose
+needs a receiver rooted in a local, `self` or a field of `self`, as an
+assignment does. A local whose
 type is still deferred also reports `E0600` and needs an annotation. One
 `E0600` is reported per construct, and uses of a rejected local are not
 reported again.
@@ -1123,10 +1126,13 @@ parameter order) and the parts of an expression are evaluated before the
 operation that uses them. Compound assignment `x op= e` reads its target
 before it evaluates `e`. Assignment to a field of a local struct, such as
 `p.a.x = e`, evaluates `e` and then stores into the struct that `p` holds at
-that point; `p.a.x op= e` reads `p.a.x` first. A method call evaluates its
+that point; `p.a.x op= e` reads `p.a.x` first. Indices in an assigned place
+are evaluated before the value, so `a[i] = e` evaluates `i`, then `e`, then
+checks that `i` is in bounds and stores. A method call evaluates its
 receiver before its arguments, except that a `mut fun` receiver is a place:
-it is read when the call starts, after the arguments, and the method's
-changes reach it when the call returns. A call of a function value evaluates
+the indices in it are evaluated first, it is read when the call starts,
+after the arguments, and the method's changes reach it when the call
+returns. A call of a function value evaluates
 the function value before its arguments. `&&` and `||` evaluate their right operand only when
 the left operand does not decide the result.
 
@@ -1141,7 +1147,10 @@ explicit. `phantasos-stage0 mir <file>` prints it for a file that passes
 `gate` (3.25). A function value in MIR is two words, the code to call and an
 environment that the code receives as a hidden first argument; a top-level
 function's value has a null environment. The x86_64 backend calls it through a
-thunk (abi.md A.6). A closure becomes a MIR function of its own, named after
+thunk (abi.md A.6). An array in MIR is three words: a pointer to its
+elements, its count and its capacity (abi.md A.2). An array literal
+allocates its elements, which are never freed in stage0, and copying an
+array copies only the three words. A closure becomes a MIR function of its own, named after
 the function that creates it, a `$closure` suffix and its number there, so
 the first closure in `main` is `main$closure0`. It takes its environment
 first. Creating the closure allocates the environment and copies each
@@ -1182,11 +1191,13 @@ small runtime of its own and no C library (abi.md A.8). The process exits
 with the value `main` returns, which the kernel truncates to its low 8 bits,
 or with 0 when `main` returns nothing. A trap writes `panic: arithmetic
 overflow` or `panic: division by zero` to standard error and exits with
-status 101. When mapping memory for closure environments fails, the program
-panics with `panic: out of memory`, trap code 4. `opt!` on `none` writes
-`panic: unwrapped 'none' at <file>:<line>:<column>`, naming where the `!`
-expression starts and the file as it was given to the compiler; it passes
-the message to `__phantasos_trap` with trap code 5. Stage0 does not print a
+status 101. When mapping memory for closure environments or array elements
+fails, the program panics with `panic: out of memory`, trap code 4. `opt!` on
+`none` writes `panic: unwrapped 'none' at <file>:<line>:<column>`, naming
+where the `!` expression starts and the file as it was given to the
+compiler, and an index out of bounds writes `panic: array index out of
+bounds at <file>:<line>:<column>`, naming where the indexing expression
+starts. Both pass the message to `__phantasos_trap` with trap code 5. Stage0 does not print a
 backtrace yet, and it does not detect stack overflow, so recursion that runs
 out of stack ends the process with a signal.
 
@@ -1519,6 +1530,11 @@ any other member of an array, is `E0450`. A wrong number of arguments is
 them to an `inout` parameter is `E0502`, and calling them is `E0410`. On an
 optional array, `a?.count` and `a?.append(x)` work as `?.` does for fields
 and methods (3.6).
+
+`a[i]` is element `i` of `a`, counting from 0, and `a[i] = x` replaces it.
+The index can have any integer type. An index below 0 or not below
+`a.count` panics (3.7). Moving an element out of the array is `E0505`
+(3.30).
 
 `for x in a` runs its body once per element of the array `a`, in order,
 with `x` bound to that element. `x` borrows the element like a borrowed

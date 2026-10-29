@@ -308,8 +308,9 @@ private:
             std::vector<usize> out;
             for (const auto& param : type.ctor_params) {
                 // A field holds the structs inside its tuples too, and,
-                // conservatively, those its function types take or return
-                // and those a generic struct's type arguments name.
+                // conservatively, those its arrays hold, those its function
+                // types take or return and those a generic struct's type
+                // arguments name.
                 // Composite types can share parts, so each is walked once.
                 std::vector<ScalarType> held{types_.binding(values_.at(param.name.span.lo))};
                 std::unordered_set<usize> seen;
@@ -318,10 +319,11 @@ private:
                     const auto field = held.back().scalar();
                     held.pop_back();
                     if ((field.kind == ScalarType::Tuple || field.kind == ScalarType::Function ||
-                         field.kind == ScalarType::Nominal) &&
+                         field.kind == ScalarType::Nominal || field.kind == ScalarType::Array) &&
                         !seen.insert(field.detail).second)
                         continue;
                     const auto* descriptor = types_.descriptor(field);
+                    if (field.kind == ScalarType::Array) held.push_back(descriptor->element);
                     if (field.kind == ScalarType::Tuple || field.kind == ScalarType::Function)
                         held.insert(held.end(), descriptor->parameters.begin(), descriptor->parameters.end());
                     if (field.kind == ScalarType::Function) held.push_back(descriptor->result);
@@ -386,6 +388,15 @@ private:
                 std::ranges::all_of(descriptor->parameters, [&](ScalarType part) {
                     return part.kind != ScalarType::Unit && part.kind != ScalarType::Never && supported_type(part);
                 });
+            composites_.emplace(type.detail, supported);
+            return supported;
+        }
+        if (type.kind == ScalarType::Array) {
+            // Elements hold values, so they cannot be 'Unit' or 'Never'.
+            if (const auto it = composites_.find(type.detail); it != composites_.end()) return it->second;
+            const auto element = types_.descriptor(type)->element;
+            const bool supported =
+                element.kind != ScalarType::Unit && element.kind != ScalarType::Never && supported_type(element);
             composites_.emplace(type.detail, supported);
             return supported;
         }
@@ -597,6 +608,10 @@ private:
                 unsupported(expr.span, "operators on function values");
                 return;
             }
+            if (lhs == ScalarType::Array || rhs == ScalarType::Array) {
+                unsupported(expr.span, "comparisons of arrays");
+                return;
+            }
         }
         if (const auto* name = as<NameExpr>(&expr)) {
             if (const auto id = target(*name); id.valid() && rejected_.contains(id.value)) return;
@@ -636,8 +651,12 @@ private:
             }
             case ExprKind::Call: call(*cast<CallExpr>(&expr), work); return;
             case ExprKind::Member: {
-                // Field reads of supported structs.
+                // Field reads of supported structs, and `count` and `isEmpty` of arrays.
                 const auto& member = *cast<MemberExpr>(&expr);
+                if (types_.array_member(&member)) {
+                    work.push_back({member.base, true});
+                    return;
+                }
                 const auto* record = types_.member(&member);
                 const bool field = record && record->state == ResolutionState::Resolved && !record->type_receiver &&
                                    record->candidates.size() == 1 &&
@@ -651,13 +670,18 @@ private:
                 return;
             }
             case ExprKind::OptMember: {
-                // `opt?.field` on an optional of a supported struct.
+                // `opt?.field` on an optional of a supported struct, or
+                // `opt?.count` and `opt?.isEmpty` on an optional array.
                 const auto& chained = *cast<OptMemberExpr>(&expr);
+                if (types_.array_member(&chained)) {
+                    work.push_back({chained.base, true});
+                    return;
+                }
                 const auto* record = types_.member(&chained);
                 const bool field = record && record->state == ResolutionState::Resolved && record->candidates.size() == 1 &&
                                    resolution_.binding(record->candidates.front()).kind == BindingKind::Field;
                 if (!field) {
-                    unsupported(expr.span, "'?.' other than on struct fields and method calls");
+                    unsupported(expr.span, "'?.' other than on struct fields, method calls and array properties");
                     return;
                 }
                 if (!type(chained.base->span, types_.expression(chained.base))) return;
@@ -673,6 +697,17 @@ private:
                 const auto& element = *cast<TupleFieldExpr>(&expr);
                 if (!type(element.base->span, types_.expression(element.base))) return;
                 work.push_back({element.base, true});
+                return;
+            }
+            case ExprKind::Array: {
+                const auto& array = *cast<ArrayExpr>(&expr);
+                for (usize i = array.elems.size(); i-- > 0;) work.push_back({array.elems[i], true});
+                return;
+            }
+            case ExprKind::Index: {
+                const auto& subscript = *cast<IndexExpr>(&expr);
+                work.push_back({subscript.index, true});
+                work.push_back({subscript.base, true});
                 return;
             }
             case ExprKind::Block: {
@@ -716,7 +751,7 @@ private:
             case ExprKind::Paren: case ExprKind::Unary: case ExprKind::Binary: case ExprKind::Call: case ExprKind::Block:
             case ExprKind::If: case ExprKind::Member: case ExprKind::SelfValue: case ExprKind::Tuple:
             case ExprKind::TupleField: case ExprKind::Closure: case ExprKind::GenericInst: case ExprKind::None:
-            case ExprKind::Unwrap: case ExprKind::OptMember:
+            case ExprKind::Unwrap: case ExprKind::OptMember: case ExprKind::Array: case ExprKind::Index:
                 return true;
             default:
                 unsupported(expr.span, expr_name(expr.kind));
@@ -749,17 +784,24 @@ private:
                 work.push_back(element->base);
             } else if (const auto* tuple = as<TupleExpr>(expr)) {
                 for (const Expr* e : tuple->elems) work.push_back(e);
+            } else if (const auto* array = as<ArrayExpr>(expr)) {
+                for (const Expr* e : array->elems) work.push_back(e);
+            } else if (const auto* subscript = as<IndexExpr>(expr)) {
+                work.push_back(subscript->base);
+                work.push_back(subscript->index);
             }
         }
         return false;
     }
 
-    // A local, the receiver or one of its fields, and fields or tuple elements below them.
+    // A local, the receiver or one of its fields, and fields, tuple elements
+    // or array elements below them.
     bool place(const Expr* expr) const {
         expr = unparen(expr);
         while (true) {
             if (const auto* member = as<MemberExpr>(expr)) expr = unparen(member->base);
             else if (const auto* element = as<TupleFieldExpr>(expr)) expr = unparen(element->base);
+            else if (const auto* subscript = as<IndexExpr>(expr)) expr = unparen(subscript->base);
             else break;
         }
         if (expr->kind == ExprKind::SelfValue) return true;
@@ -809,6 +851,10 @@ private:
             // print: its argument is a String, Int, UInt or Bool (3.27).
             if (checked->state != CallState::Resolved) unsupported_type(call.span, ScalarType{});
             else work.push_back({call.args.front().value, true});
+            return;
+        }
+        if (checked && checked->kind == CallKind::Array) {
+            unsupported(call.callee->span, "'append' and 'removeLast'");
             return;
         }
         if (checked && checked->kind == CallKind::Clone) {

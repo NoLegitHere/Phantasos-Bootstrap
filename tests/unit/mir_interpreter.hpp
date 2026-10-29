@@ -34,7 +34,9 @@ using mir::Type;
 // field lists, which Copy and Call share freely. A function value's code word
 // is the function's index, and its environment word is 0 or one more than
 // the index of its environment's field list; a call through it passes that
-// word first when the code is a closure.
+// word first when the code is a closure. An array's data word is 0 when it is
+// empty, and otherwise one more than the index of a mutable element buffer
+// that every copy of the array shares.
 struct Outcome {
     bool trapped = false;
     u64 value = 0;
@@ -63,6 +65,7 @@ public:
     Outcome run(u32 function) {
         output_.clear();
         aggregates_.clear();
+        buffers_.clear();
         auto outcome = call(function, {});
         outcome.output = output_;
         return outcome;
@@ -177,6 +180,45 @@ private:
                     regs[inst.dst.id] = aggregates_.size() - 1;
                     continue;
                 }
+                if (inst.op == Op::Array) {
+                    const Type type = fun.regs[inst.dst.id];
+                    CHECK(mir::is_aggregate(type));
+                    const auto& layout = program_.layouts[mir::layout_index(type)];
+                    CHECK(layout.kind == mir::Layout::Array);
+                    std::vector<u64> elements;
+                    for (const auto arg : inst.args) {
+                        CHECK(fun.regs[arg.id] == layout.element);
+                        elements.push_back(regs[arg.id]);
+                    }
+                    u64 data = 0;
+                    if (!elements.empty()) {
+                        buffers_.push_back(std::move(elements));
+                        data = buffers_.size();
+                    }
+                    aggregates_.push_back({data, inst.args.size(), inst.args.size()});
+                    regs[inst.dst.id] = aggregates_.size() - 1;
+                    continue;
+                }
+                if (inst.op == Op::Load || inst.op == Op::Store) {
+                    // Lowering checks bounds before every access.
+                    const Type type = fun.regs[inst.a.id];
+                    CHECK(mir::is_aggregate(type));
+                    const auto& layout = program_.layouts[mir::layout_index(type)];
+                    CHECK(layout.kind == mir::Layout::Array && fun.regs[inst.b.id] == Type::U64);
+                    const auto& array = aggregates_[regs[inst.a.id]];
+                    const u64 at = regs[inst.b.id];
+                    CHECK(at < array[1] && array[0] != 0 && array[0] <= buffers_.size());
+                    auto& elements = buffers_[array[0] - 1];
+                    CHECK(at < elements.size());
+                    if (inst.op == Op::Load) {
+                        CHECK(fun.regs[inst.dst.id] == layout.element);
+                        regs[inst.dst.id] = elements[at];
+                    } else {
+                        CHECK(inst.args.size() == 1 && fun.regs[inst.args.front().id] == layout.element);
+                        elements[at] = regs[inst.args.front().id];
+                    }
+                    continue;
+                }
                 if (inst.op == Op::None) {
                     const Type type = fun.regs[inst.dst.id];
                     CHECK(mir::is_aggregate(type) && program_.layouts[mir::layout_index(type)].kind == mir::Layout::Optional);
@@ -268,7 +310,8 @@ private:
                     case Op::Widen: out = a; CHECK(fits(type, a)); break;
                     case Op::Truncate: out = normalize(type, a); break;
                     case Op::Call: case Op::Print: case Op::Make: case Op::Field: case Op::With:
-                    case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None: break;
+                    case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None:
+                    case Op::Array: case Op::Load: case Op::Store: break;
                 }
                 if (trap) return {true, 0, trap};
                 regs[inst.dst.id] = out;
@@ -292,6 +335,7 @@ private:
     usize depth_ = 0;
     std::string output_;
     std::vector<std::vector<u64>> aggregates_;
+    std::vector<std::vector<u64>> buffers_;  // array elements
 };
 
 

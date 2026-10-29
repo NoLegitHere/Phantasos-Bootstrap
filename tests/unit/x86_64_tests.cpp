@@ -728,6 +728,30 @@ void optional_chaining() {
            "        (p?.line()?.c ?? 0) * 1000000 + (n?.line()?.a ?? 0)\n}\n");
 }
 
+void arrays() {
+    // Elements of every size agree with the interpreter: Bool, Int8, Int,
+    // String, optionals, structs passed by address and nested arrays.
+    agrees("struct Big(var a: Int, var b: Int, var c: Int)\n"
+           "fun b(x: Bool): Int = if x { 1 } else { 0 }\n"
+           "fun main(): Int {\n    var flags = [true, false, true]\n    flags[1] = true\n"
+           "    var small: [Int8] = [1, -2, 3]\n    small[2] += 4\n"
+           "    var bigs = [Big(1, 2, 3), Big(4, 5, 6)]\n    bigs[1].c = 60\n"
+           "    var grid = [[1], [2, 3]]\n    grid[1][1] = 30\n    let o: [Int8?] = [none, 9]\n"
+           "    let e: [Big] = []\n"
+           "    return b(flags[0]) + b(flags[1]) * 2 + Int(small[1] + small[2]) * 4 + bigs[1].c * 100 +\n"
+           "        grid[1][1] * 10000 + Int(o[1] ?? 0) * 1000000 + b(e.isEmpty) * 100000000 + grid.count\n}\n");
+    agrees("struct C(var n: Int) {\n    mut fun bump() { n += 1 }\n}\n"
+           "struct Bag(var items: [C]) {\n    mut fun set(i: Int, v: Int) { items[i].n = v }\n}\n"
+           "fun total(cs: [C]): Int = cs[0].n + cs[1].n\nfun make(n: Int): [C] = [C(n), C(n + 1)]\n"
+           "fun main(): Int {\n    var b = Bag(make(1))\n    b.items[1].bump()\n    b.set(0, 10)\n"
+           "    let i: UInt8 = 1\n    return total(b.items) + make(5)[i].n * 100\n}\n");
+    agrees("fun main(): Int {\n    let a = [5]\n    let i: Int8 = -1\n    return a[i]\n}\n");
+    agrees("fun main(): Int {\n    let a: [Int] = []\n    return a[0]\n}\n");
+    agrees("fun boom(): Int = 1 / 0\nfun main() {\n    var a = [1]\n    a[5] = boom()\n}\n");
+    strings_agree("fun f(): String {\n    var s = [\"a\", \"bc\", \"d\"]\n    s[0] = \"e\"\n    return s[1].clone()\n}\n"
+                  "fun main() {}\n", "bc");
+}
+
 int main() {
     object_layout();
     programs();
@@ -736,6 +760,7 @@ int main() {
     closures();
     optionals();
     optional_chaining();
+    arrays();
     random_expressions();
     std::println("x86_64 tests passed");
 }

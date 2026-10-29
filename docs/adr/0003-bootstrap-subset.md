@@ -16,6 +16,7 @@ Stage1 is written in the **bootstrap subset**: the programs that stage0's
 `gate` accepts. Stage0 grows only until that subset is enough to write a
 compiler:
 
+- shifts (`<<`, `>>`) for hashing, bit sets and instruction encoding;
 - enums with payloads and `match`;
 - `String` values that are always valid UTF-8, with comparison, byte
   access, slicing on character boundaries and building from bytes;

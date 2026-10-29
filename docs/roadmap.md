@@ -94,6 +94,7 @@ foundation. Complete.
   - [x] `append` growth and `for` loops in code generation.
   - [x] Moves, `.clone()` and generics for arrays and optionals.
   - [x] Samples and run tests.
+- [ ] Shifts (`<<`, `>>` and their compound assignments) in code generation.
 - [ ] **Enums and `match` (M8).** Enum values with payloads, `match` with
   exhaustiveness checks, and generic enums such as `Result<T, E>`.
 - [ ] **Strings as data (M9).** Comparison, byte access, slicing and

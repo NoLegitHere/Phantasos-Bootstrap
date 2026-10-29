@@ -1485,7 +1485,8 @@ private:
         switch (checked->kind) {
             case CallKind::NumericConversion:
             case CallKind::Builtin:
-            case CallKind::Clone: return false;
+            case CallKind::Clone:
+            case CallKind::Array: return false;
             case CallKind::IndirectFunction: {
                 const auto* function = types_.descriptor(types_.expression(call.callee));
                 return !function || function->throws;

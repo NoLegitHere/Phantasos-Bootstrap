@@ -62,3 +62,12 @@ fun moves() {
     kept.append(s)
     take(s)
 }
+
+// Array methods never throw, so `try?` adds no path that skips the assignment.
+fun initialized(values: inout [Int]): Int {
+    var x: Int
+    let ignored = try? unsafe { values.append(1)
+        x = 1
+        0 }
+    return x
+}

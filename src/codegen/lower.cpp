@@ -193,11 +193,20 @@ private:
         ScalarType self_type;      // the creating method's receiver type, if any
         std::vector<ScalarTypes::TypeArgument> env;  // that of the function creating it
     };
-    // A local or the receiver, and the fields below it from the outside in.
+    // A part one step inside a place: a field or tuple element, or an array
+    // element at an index evaluated along with the place.
+    struct Step {
+        u32 field = 0;
+        bool element = false;
+        Reg index;  // an element's U64 index
+        Type type = Type::Unit;
+        Span span;  // an element's indexing expression, where a bounds check panics
+    };
+    // A local or the receiver, and the parts below it from the root out.
     struct Place {
         Reg root;
-        std::vector<u32> fields;
-        std::vector<Type> types;  // the type of each field
+        std::vector<Step> steps;
+        bool diverged = false;  // an index ended the block
     };
 
     // ------------------------------------------------------------ building
@@ -237,6 +246,7 @@ private:
         if (type.optional_depth) return optional(lower_type(type.element()));
         if (type.kind == ScalarType::Tuple) return tuple(type);
         if (type.kind == ScalarType::Function) return function_type(type);
+        if (type.kind == ScalarType::Array) return array(type);
         if (type.kind != ScalarType::Nominal) return scalar_type(type);
         return structure(type);
     }
@@ -277,6 +287,25 @@ private:
     }
     bool is_optional(Type type) const {
         return is_aggregate(type) && program_.layouts[layout_index(type)].kind == Layout::Optional;
+    }
+
+    // An array type's layout, built once per type: its data, count and
+    // capacity words, and the type of the elements that data points at.
+    Type array(ScalarType type) {
+        PHS_ASSERT(type.optional_depth == 0);
+        if (const auto it = arrays_.find(type.detail); it != arrays_.end()) return aggregate(it->second);
+        const ScalarType element = types_.descriptor(type)->element;  // copied, like function_type's descriptor
+        Layout layout;
+        layout.name = types_.type_name(type, resolution_, names_);
+        layout.kind = Layout::Array;
+        layout.fields = {Type::U64, Type::I64, Type::I64};
+        layout.names = {"data", "count", "capacity"};
+        layout.element = lower_type(element);
+        place_fields(program_, layout);
+        const auto index = static_cast<u32>(program_.layouts.size());
+        program_.layouts.push_back(std::move(layout));
+        arrays_.emplace(type.detail, index);
+        return aggregate(index);
     }
 
     // A function type's layout, built once per type: the code and environment
@@ -533,7 +562,8 @@ private:
             case StmtKind::Assign: {
                 const auto& assign = *cast<AssignStmt>(&stmt);
                 const Place assigned = place(assign.target);
-                if (!assigned.fields.empty()) return assign_field(assign, assigned);
+                if (assigned.diverged) return;
+                if (!assigned.steps.empty()) return assign_field(assign, assigned);
                 const Reg dst = assigned.root;
                 if (assign.op == AssignOp::Assign) {
                     copy(dst, any(assign.value));
@@ -591,15 +621,16 @@ private:
         }
     }
 
-    // A field of a local struct or of the receiver, possibly nested: the new
-    // value is built into each enclosing struct in turn, from the root's value
-    // after the assigned value was evaluated. Compound assignment reads the
-    // field first.
+    // A field or element of a local or of the receiver, possibly nested: the
+    // new value is built into each enclosing aggregate in turn, from the
+    // root's value after the assigned value was evaluated, and stored into
+    // the innermost array element on the way. Compound assignment reads the
+    // part first. Indices were evaluated with the place, before the value.
     void assign_field(const AssignStmt& assign, const Place& target) {
         Reg src;
         if (assign.op == AssignOp::Assign) src = any(assign.value);
         else {
-            const Reg old = value(assign.target);
+            const Reg old = read(target, target.steps.size()).back();
             const Reg rhs = any(assign.value);
             if (rhs.valid()) {
                 src = reg(fun_->regs[old.id]);
@@ -608,51 +639,128 @@ private:
         }
         // A diverging value has already ended the block.
         if (!src.valid()) return;
-        auto owners = read(target, target.fields.size() - 1);
+        auto owners = read(target, target.steps.size() - 1);
         owners.push_back(src);
         rebuild(target, owners);
     }
 
     // ------------------------------------------------------------ places
 
+    // The place an assignment or a `mut fun` call targets. Its indices are
+    // evaluated now, from the root out, and kept, so later code cannot change
+    // them.
     Place place(const Expr* expr) {
         Place out;
+        std::vector<const IndexExpr*> indices;
         expr = unparen(expr);
         while (true) {
             if (const auto* member = as<MemberExpr>(expr)) {
-                out.fields.push_back(field(*member));
-                out.types.push_back(lower_type(scalar(member)));
+                out.steps.push_back({.field = field(*member), .type = lower_type(scalar(member))});
                 expr = unparen(member->base);
             } else if (const auto* element = as<TupleFieldExpr>(expr)) {
-                out.fields.push_back(element->index);
-                out.types.push_back(lower_type(scalar(element)));
+                out.steps.push_back({.field = element->index, .type = lower_type(scalar(element))});
                 expr = unparen(element->base);
+            } else if (const auto* subscript = as<IndexExpr>(expr)) {
+                out.steps.push_back({.element = true, .type = lower_type(scalar(subscript)), .span = subscript->span});
+                indices.push_back(subscript);
+                expr = unparen(subscript->base);
             } else break;
         }
         if (const auto* name = as<NameExpr>(expr); name && implicit_field(*name)) {
-            out.fields.push_back(implicit_field(*name).value());
-            out.types.push_back(lower_type(scalar(name)));
+            out.steps.push_back({.field = implicit_field(*name).value(), .type = lower_type(scalar(name))});
             out.root = self_;
         } else out.root = name ? local(*name) : self_;
-        std::reverse(out.fields.begin(), out.fields.end());
-        std::reverse(out.types.begin(), out.types.end());
+        std::reverse(out.steps.begin(), out.steps.end());
+        auto next = indices.rbegin();
+        for (auto& step : out.steps) {
+            if (!step.element) continue;
+            const Reg index = value((*next++)->index);
+            // A diverging index has already ended the block.
+            if (!index.valid()) {
+                out.diverged = true;
+                return out;
+            }
+            step.index = element_index(index);
+        }
         return out;
     }
-    // The root and the values of its first depth fields, each read from the previous.
+    // The root and the values of its first depth parts, each read from the previous.
     std::vector<Reg> read(const Place& place, usize depth) {
         std::vector<Reg> owners{place.root};
         for (usize i = 0; i < depth; ++i) {
-            const Reg inner = reg(place.types[i]);
-            emit({.op = Op::Field, .dst = inner, .a = owners.back(), .imm = place.fields[i]});
+            const Step& step = place.steps[i];
+            if (step.element) {
+                owners.push_back(load(owners.back(), step.index, step.span));
+                continue;
+            }
+            const Reg inner = reg(step.type);
+            emit({.op = Op::Field, .dst = inner, .a = owners.back(), .imm = step.field});
             owners.push_back(inner);
         }
         return owners;
     }
-    // Writes owners.back() into the place's last field, rebuilding every
-    // enclosing struct up to the root in place.
+    // Writes owners.back() into the place's last part, rebuilding every
+    // enclosing aggregate in place up to the root, or up to the innermost
+    // array element, which is stored back into its array: the array's own
+    // words do not change.
     void rebuild(const Place& place, const std::vector<Reg>& owners) {
-        for (usize i = place.fields.size(); i-- > 0;)
-            emit({.op = Op::With, .dst = owners[i], .a = owners[i], .b = owners[i + 1], .imm = place.fields[i]});
+        for (usize i = place.steps.size(); i-- > 0;) {
+            const Step& step = place.steps[i];
+            if (step.element) {
+                bounds(owners[i], step.index, step.span);
+                emit({.op = Op::Store, .a = owners[i], .b = step.index, .args = {owners[i + 1]}});
+                return;
+            }
+            emit({.op = Op::With, .dst = owners[i], .a = owners[i], .b = owners[i + 1], .imm = step.field});
+        }
+    }
+
+    // An index of any integer type as the U64 that Load and Store take. A
+    // negative index becomes one too big to be in bounds.
+    Reg element_index(Reg index) {
+        const Type type = fun_->regs[index.id];
+        if (is_signed(type)) {
+            Reg wide = index;
+            if (type != Type::I64) {
+                wide = reg(Type::I64);
+                emit({.op = Op::Widen, .dst = wide, .a = index});
+            }
+            const Reg bits = reg(Type::U64);
+            emit({.op = Op::Truncate, .dst = bits, .a = wide});
+            return bits;
+        }
+        const Reg wide = reg(Type::U64);
+        emit({.op = type == Type::U64 ? Op::Copy : Op::Widen, .dst = wide, .a = index});
+        return wide;
+    }
+    // Panics at span unless the U64 index is below the array's count.
+    void bounds(Reg array, Reg index, Span span) {
+        const Reg count = reg(Type::I64), limit = reg(Type::U64), in = reg(Type::Bool);
+        emit({.op = Op::Field, .dst = count, .a = array, .imm = 1});
+        emit({.op = Op::Widen, .dst = limit, .a = count});
+        emit({.op = Op::Lt, .dst = in, .a = index, .b = limit});
+        const u32 then = block(), other = block();
+        end(Term::CondBr, in, then, other);
+        current_ = other;
+        panic("array index out of bounds", span);
+        current_ = then;
+    }
+    // The element at a U64 index of an array, checked to be in bounds.
+    Reg load(Reg array, Reg index, Span span) {
+        bounds(array, index, span);
+        const Reg dst = reg(program_.layouts[layout_index(fun_->regs[array.id])].element);
+        emit({.op = Op::Load, .dst = dst, .a = array, .b = index});
+        return dst;
+    }
+    // `a.count` or `a.isEmpty` of an array value.
+    Reg array_property(Reg array, ArrayMember member) {
+        const Reg count = reg(Type::I64);
+        emit({.op = Op::Field, .dst = count, .a = array, .imm = 1});
+        if (member == ArrayMember::Count) return count;
+        PHS_ASSERT(member == ArrayMember::IsEmpty);
+        const Reg empty = reg(Type::Bool);
+        emit({.op = Op::Eq, .dst = empty, .a = count, .b = constant(Type::I64, 0)});
+        return empty;
     }
 
     // ------------------------------------------------------------ expressions
@@ -693,6 +801,11 @@ private:
                 work.push_back(element->base);
             } else if (const auto* tuple = as<TupleExpr>(expr)) {
                 for (const Expr* e : tuple->elems) work.push_back(e);
+            } else if (const auto* array = as<ArrayExpr>(expr)) {
+                for (const Expr* e : array->elems) work.push_back(e);
+            } else if (const auto* subscript = as<IndexExpr>(expr)) {
+                work.push_back(subscript->base);
+                work.push_back(subscript->index);
             }
         }
         return false;
@@ -916,6 +1029,10 @@ private:
                         values.push_back({});
                         break;
                     }
+                    if (const auto property = types_.array_member(expr)) {
+                        values.push_back(array_property(base, *property));
+                        break;
+                    }
                     const u32 index = field(member);
                     const Reg dst = reg(lower_type(scalar(expr)));
                     emit({.op = Op::Field, .dst = dst, .a = base, .imm = index});
@@ -936,16 +1053,20 @@ private:
                         values.push_back({});
                         break;
                     }
-                    const u32 index = field(&chained, chained.base);
+                    const auto property = types_.array_member(expr);
+                    const u32 index = property ? 0 : field(&chained, chained.base);
                     const Type type = fun_->regs[base.id];
                     const Reg result = reg(lower_type(scalar(expr)));
                     const u32 join = chain(base, result);
                     const Type structure = program_.layouts[layout_index(type)].fields[1];
                     const Reg inner = reg(structure);
                     emit({.op = Op::Field, .dst = inner, .a = base, .imm = 1});
-                    const Reg value = reg(program_.layouts[layout_index(structure)].fields[index]);
-                    emit({.op = Op::Field, .dst = value, .a = inner, .imm = index});
-                    copy(result, value);
+                    if (property) copy(result, array_property(inner, *property));
+                    else {
+                        const Reg value = reg(program_.layouts[layout_index(structure)].fields[index]);
+                        emit({.op = Op::Field, .dst = value, .a = inner, .imm = index});
+                        copy(result, value);
+                    }
                     end(Term::Br, {}, join);
                     current_ = join;
                     values.push_back(result);
@@ -992,6 +1113,43 @@ private:
                     values.push_back(dst);
                     break;
                 }
+                case ExprKind::Array: {
+                    // Elements run left to right, then the array is allocated whole.
+                    const auto& array = *cast<ArrayExpr>(expr);
+                    if (stage < array.elems.size()) {
+                        tasks.push_back({array.elems[stage]});
+                        break;
+                    }
+                    tasks.pop_back();
+                    const auto count = static_cast<std::ptrdiff_t>(array.elems.size());
+                    std::vector<Reg> elements(values.end() - count, values.end());
+                    values.resize(values.size() - static_cast<usize>(count));
+                    // A diverging element has already ended the block.
+                    if (std::ranges::any_of(elements, [](Reg r) { return !r.valid(); })) {
+                        values.push_back({});
+                        break;
+                    }
+                    const Reg dst = reg(lower_type(scalar(expr)));
+                    emit({.op = Op::Array, .dst = dst, .args = std::move(elements)});
+                    values.push_back(dst);
+                    break;
+                }
+                case ExprKind::Index: {
+                    // The array, then the index, then the bounds check.
+                    const auto& subscript = *cast<IndexExpr>(expr);
+                    if (stage < 2) {
+                        tasks.push_back({stage == 0 ? subscript.base : subscript.index});
+                        break;
+                    }
+                    tasks.pop_back();
+                    const Reg index = values.back();
+                    values.pop_back();
+                    const Reg base = values.back();
+                    values.pop_back();
+                    // A diverging operand has already ended the block.
+                    values.push_back(base.valid() && index.valid() ? load(base, element_index(index), expr->span) : Reg{});
+                    break;
+                }
                 case ExprKind::Call: {
                     const auto& call = *cast<CallExpr>(expr);
                     // A method's receiver value, or the function value of an
@@ -1001,6 +1159,10 @@ private:
                     const bool method = checked && ((checked->kind == CallKind::Method && !mutating_call(call)) ||
                                                     checked->kind == CallKind::Clone);
                     const usize first = method || indirect(call) ? 1 : 0;
+                    // A `mut fun` receiver's place, with its indices, comes
+                    // before the arguments.
+                    if (stage == 0 && mutating_call(call))
+                        receivers_[&call] = checked->receiver ? place(checked->receiver) : Place{self_, {}};
                     if (stage < first) {
                         if (!method) tasks.push_back({call.callee});
                         else if (checked->receiver) tasks.push_back({checked->receiver});
@@ -1143,6 +1305,11 @@ private:
                 work.push_back(element->base);
             } else if (const auto* tuple = as<TupleExpr>(expr)) {
                 for (const Expr* e : tuple->elems) work.push_back(e);
+            } else if (const auto* array = as<ArrayExpr>(expr)) {
+                for (const Expr* e : array->elems) work.push_back(e);
+            } else if (const auto* subscript = as<IndexExpr>(expr)) {
+                work.push_back(subscript->base);
+                work.push_back(subscript->index);
             } else if (const auto* branch = as<IfExpr>(expr)) {
                 work.push_back(branch->cond.expr);
                 work.push_back(branch->then_block);
@@ -1204,15 +1371,18 @@ private:
         const u32 then = block(), other = block();
         end(Term::CondBr, some, then, other);
         current_ = other;
-        const auto& file = sources_.file(span.file);
-        const auto at = sources_.line_col(span.file, span.lo);
-        fun_->blocks[current_].message =
-            string(std::format("panic: unwrapped 'none' at {}:{}:{}\n", file.path, at.line, at.col));
-        end(Term::Panic);
+        panic("unwrapped 'none'", span);
         current_ = then;
         const Reg dst = reg(program_.layouts[layout_index(fun_->regs[optional.id])].fields[1]);
         emit({.op = Op::Field, .dst = dst, .a = optional, .imm = 1});
         return dst;
+    }
+    // Ends the current block with a panic that names what happened and where.
+    void panic(std::string_view what, Span span) {
+        const auto& file = sources_.file(span.file);
+        const auto at = sources_.line_col(span.file, span.lo);
+        fun_->blocks[current_].message = string(std::format("panic: {} at {}:{}:{}\n", what, file.path, at.line, at.col));
+        end(Term::Panic);
     }
     // The index of bytes in the program's string pool, each distinct value once.
     u32 string(std::string_view bytes) {
@@ -1385,8 +1555,9 @@ private:
         if (at_place) {
             // The receiver's place is read now, and written back after the
             // call when the callee mutates it.
-            receiver = checked.receiver ? place(checked.receiver) : Place{self_, {}, {}};
-            owners = read(receiver, receiver.fields.size());
+            receiver = std::move(receivers_.at(&call));
+            if (receiver.diverged) return {};
+            owners = read(receiver, receiver.steps.size());
             ordered.front() = owners.back();
         }
         const Reg dst = has_value(type) ? reg(type) : Reg{};
@@ -1513,7 +1684,7 @@ private:
         return dst;
     }
     // Lifts every operand stored where its optional is expected: copies,
-    // arguments, fields and results.
+    // arguments, fields, elements and results.
     void lift(Function& fun) const {
         for (auto& block : fun.blocks) {
             std::vector<Inst> out;
@@ -1529,6 +1700,15 @@ private:
                     }
                     case Op::With:
                         inst.b = lift(fun, out, inst.b, program_.layouts[layout_index(fun.regs[inst.a.id])].fields[inst.imm]);
+                        break;
+                    case Op::Array: {
+                        const Type element = program_.layouts[layout_index(fun.regs[inst.dst.id])].element;
+                        for (auto& arg : inst.args) arg = lift(fun, out, arg, element);
+                        break;
+                    }
+                    case Op::Store:
+                        inst.args.front() =
+                            lift(fun, out, inst.args.front(), program_.layouts[layout_index(fun.regs[inst.a.id])].element);
                         break;
                     case Op::Call: {
                         const auto& callee = program_.functions[inst.callee];
@@ -1567,6 +1747,7 @@ private:
     std::unordered_map<usize, u32> layouts_;  // struct type descriptor to its index in program_.layouts
     std::unordered_map<usize, u32> tuples_;   // tuple type descriptor to its index in program_.layouts
     std::unordered_map<usize, u32> function_types_;  // function type descriptor to its index in program_.layouts
+    std::unordered_map<usize, u32> arrays_;   // array type descriptor to its index in program_.layouts
     std::unordered_map<u32, u32> optionals_;  // an optional's value type to its index in program_.layouts
     std::unordered_map<u32, u32> fields_;     // field declaration offset to its declaration index
     std::unordered_map<const FunItem*, const TypeDeclItem*> owners_;  // a method's struct
@@ -1577,6 +1758,7 @@ private:
     u32 current_ = 0;
     std::unordered_map<usize, Reg> locals_;  // by binding ID
     std::vector<Loop> loops_;
+    std::unordered_map<const CallExpr*, Place> receivers_;  // `mut fun` receivers placed before their arguments
     std::vector<PendingClosure> closures_;
     std::unordered_map<usize, u32> closure_counts_;  // closures created so far, by creating function
 };

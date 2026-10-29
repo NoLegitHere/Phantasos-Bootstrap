@@ -726,6 +726,8 @@ private:
         if (inst.op == Op::Field) return field(inst);
         if (inst.op == Op::With) return with(inst);
         if (inst.op == Op::None) return zero(slot(inst.dst), size(fun_->regs[inst.dst.id]));
+        if (inst.op == Op::Array) return array(inst);
+        if (inst.op == Op::Load || inst.op == Op::Store) return element(inst);
         const Type type = fun_->regs[inst.dst.id];
         if (mir::is_aggregate(type)) {
             PHS_ASSERT(inst.op == Op::Copy);
@@ -779,7 +781,8 @@ private:
                 break;
             }
             case Op::Call: case Op::Str: case Op::Print: case Op::Make: case Op::Field: case Op::With:
-            case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None: break;
+            case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None:
+            case Op::Array: case Op::Load: case Op::Store: break;
         }
         as_.store(slot(inst.dst), RAX);
     }
@@ -881,6 +884,49 @@ private:
         }
         as_.lea(RAX, inst.callee);
         as_.store(slot(inst.dst), RAX);
+    }
+
+    // A new array: its elements in memory from _P$alloc, each its size
+    // apart, and a count and capacity of their number. An empty array is
+    // all zero and allocates nothing.
+    void array(const mir::Inst& inst) {
+        const auto& layout = program_.layouts[mir::layout_index(fun_->regs[inst.dst.id])];
+        if (inst.args.empty()) return zero(slot(inst.dst), layout.size);
+        const u32 stride = size(layout.element);
+        as_.mov_imm(RDI, u64{stride} * inst.args.size());
+        as_.call(runtime(kAlloc));
+        as_.store(slot(inst.dst) + static_cast<i32>(layout.offsets[0]), RAX);
+        as_.mov(RDX, RAX);
+        for (usize i = 0; i < inst.args.size(); ++i) {
+            const auto at = static_cast<i32>(stride * i);
+            if (scalar(layout.element)) {
+                as_.load(RAX, slot(inst.args[i]));
+                as_.store_bytes(RDX, at, RAX, stride);
+            } else copy(RDX, at, RBP, slot(inst.args[i]), stride);
+        }
+        as_.mov_imm(RAX, inst.args.size());
+        as_.store(slot(inst.dst) + static_cast<i32>(layout.offsets[1]), RAX);
+        as_.store(slot(inst.dst) + static_cast<i32>(layout.offsets[2]), RAX);
+    }
+
+    // Load and Store: the element's address, data + index * size, in rdx.
+    void element(const mir::Inst& inst) {
+        const auto& layout = program_.layouts[mir::layout_index(fun_->regs[inst.a.id])];
+        const Type type = layout.element;
+        as_.load(RAX, slot(inst.b));
+        as_.mov_imm(RCX, size(type));
+        as_.imul(RAX, RCX);
+        as_.load(RDX, slot(inst.a) + static_cast<i32>(layout.offsets[0]));
+        as_.alu(0x01, "add", RDX, RAX);
+        if (inst.op == Op::Load) {
+            if (scalar(type)) {
+                as_.load_field(RAX, RDX, 0, type);
+                as_.store(slot(inst.dst), RAX);
+            } else copy(RBP, slot(inst.dst), RDX, 0, size(type));
+        } else if (scalar(type)) {
+            as_.load(RAX, slot(inst.args.front()));
+            as_.store_bytes(RDX, 0, RAX, size(type));
+        } else copy(RDX, 0, RBP, slot(inst.args.front()), size(type));
     }
 
     // A captured value, read from the environment that a points to.
@@ -1061,7 +1107,8 @@ public:
         const bool allocates = std::ranges::any_of(program_.functions, [&](const mir::Function& fun) {
             return std::ranges::any_of(fun.blocks, [&](const mir::Block& block) {
                 return std::ranges::any_of(block.insts, [&](const mir::Inst& inst) {
-                    return inst.op == Op::Closure && program_.functions[inst.callee].environment.has_value();
+                    return (inst.op == Op::Closure && program_.functions[inst.callee].environment.has_value()) ||
+                           (inst.op == Op::Array && !inst.args.empty());
                 });
             });
         });

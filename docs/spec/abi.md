@@ -32,6 +32,10 @@ ABI**.
 - A tuple is laid out like a struct whose fields are its elements, in
   order, so `(Bool, Int, Int8)` puts element 1 at 0, element 0 at 8 and
   element 2 at 9, and takes 16 bytes. It is passed like that struct too.
+- An array `[T]` is three words, like a struct of a pointer to its
+  elements at 0, its count at 8 and its capacity at 16, both `Int`, and is
+  passed like that struct. The elements are laid out one after another,
+  each `T`'s size apart. An empty array may have a null pointer.
 - A function value is two words, like a struct of a code pointer at 0 and
   an environment pointer at 8, and is passed like that struct. The code
   takes the environment as a hidden parameter (A.6). Stage0's values of named

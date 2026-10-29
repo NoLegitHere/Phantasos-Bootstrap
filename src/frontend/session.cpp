@@ -66,7 +66,7 @@ bool FrontendSession::check_codegen(FileId file) {
 const mir::Program* FrontendSession::lower(FileId file) {
     if (!check_codegen(file)) return nullptr;
     auto& state = files_.at(file.value);
-    if (!state.mir) state.mir = mir::lower(*state.syntax, *state.resolution, *state.scalar_types, names_);
+    if (!state.mir) state.mir = mir::lower(*state.syntax, *state.resolution, *state.scalar_types, names_, sources_);
     return &*state.mir;
 }
 

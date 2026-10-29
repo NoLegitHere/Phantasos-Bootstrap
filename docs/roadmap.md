@@ -86,7 +86,7 @@ foundation. Complete.
   `check` and in code generation on Linux x86_64.
   - [x] Optionals in `check`: `if let`, `while let`, `??` and comparisons
     with `none`.
-  - [ ] Optional code generation, with a located panic for `!` on `none`.
+  - [x] Optional code generation, with a located panic for `!` on `none`.
   - [ ] Optional chaining (`?.`).
   - [ ] Arrays in `check`: built-in members and `for` over arrays and ranges.
   - [ ] Array values in code generation, with bounds checks.

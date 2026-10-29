@@ -681,12 +681,37 @@ void random_expressions() {
 }
 }  // namespace
 
+void optionals() {
+    // Optionals of scalars, of a nested optional and of a struct passed by
+    // address agree with the interpreter, through every lifting site.
+    agrees("fun find(n: Int): Int? = if n > 0 { n } else { none }\n"
+           "fun main(): Int {\n    var total = 0\n    if let v = find(2) { total += v }\n"
+           "    var next: Int? = 3\n    while let n = next {\n        total += n\n"
+           "        next = if n > 1 { n - 1 } else { none }\n    }\n    return total + (find(0) ?? 1000)\n}\n");
+    agrees("fun b(x: Bool): Int = if x { 1 } else { 0 }\n"
+           "fun main(): Int {\n    let a: Int8? = 5\n    let n: Int8? = none\n    let deep: Int8? ? = a\n"
+           "    return b(a == 5) + b(a != n) * 2 + b(n == none) * 4 + b(deep == a) * 8 + b(deep == n) * 16 +\n"
+           "        b(deep == 6) * 32 + Int((deep ?? none) ?? 0) * 64\n}\n");
+    agrees("struct Big(let a: Int, let b: Int, let c: Int)\n"
+           "fun pick(n: Int): Big? = if n == 0 { none } else { Big(n, n + 1, n + 2) }\n"
+           "fun sum(x: Big?): Int {\n    if let v = x { return v.a + v.b + v.c }\n    return -1\n}\n"
+           "fun main(): Int = sum(pick(1)) * 10 + sum(pick(0)) + sum(Big(1, 1, 1))\n");
+    agrees("struct S(var a: Int?, let b: Bool?)\n"
+           "fun main(): Int {\n    var s = S(none, true)\n    s.a = 7\n    let t: (UInt8?, Int) = (UInt8(3), 4)\n"
+           "    let f: fun(Int) -> Int? = { x -> x }\n"
+           "    let flag: Int = if s.b ?? false { 100 } else { 0 }\n"
+           "    return (s.a ?? 0) + Int(t.0 ?? UInt8(0)) + (f(9) ?? 0) + flag\n}\n");
+    agrees("fun main(): Int {\n    let x: Int? ? = 4\n    return x!! + 1\n}\n");
+    agrees("fun main(): Int {\n    let x: Int8? = none\n    return Int(x!)\n}\n");
+}
+
 int main() {
     object_layout();
     programs();
     strings();
     function_values();
     closures();
+    optionals();
     random_expressions();
     std::println("x86_64 tests passed");
 }

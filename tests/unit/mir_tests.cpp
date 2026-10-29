@@ -637,6 +637,39 @@ void long_trees() {
 }
 }  // namespace
 
+void optionals() {
+    Frontend f;
+    const auto text = f.dump("fun find(n: Int): Int? = if n > 0 { n } else { none }\n"
+                             "fun main(): Int = find(2) ?? 0\n");
+    // A tag and the value; `none` is all zero; a value is lifted where its optional is expected.
+    CHECK(text.starts_with("optional @i64? { some: bool +8, value: i64 +0 } size 16 align 8\n\n"));
+    CHECK(text.contains("= none\n") && text.contains("= const true\n") && text.contains("= make "));
+    CHECK(result("fun find(n: Int): Int? = if n > 0 { n } else { none }\n"
+                 "fun main(): Int {\n    var total = 0\n    if let v = find(2) { total += v }\n"
+                 "    if let v = find(-2) { total += 100 } else { total += 10 }\n"
+                 "    var next: Int? = 3\n    while let n = next {\n        total += n\n"
+                 "        next = if n > 1 { n - 1 } else { none }\n    }\n    return total + (find(0) ?? 1000)\n}\n") ==
+          2 + 10 + 6 + 1000);
+    // The fallback runs only for `none`.
+    CHECK(!traps("fun boom(): Int = 1 / 0\nfun main(): Int {\n    let x: Int? = 1\n    return x ?? boom()\n}\n"));
+    CHECK(traps("fun boom(): Int = 1 / 0\nfun main(): Int {\n    let x: Int? = none\n    return x ?? boom()\n}\n"));
+    // Equality compares tags, then values, at the deeper optional's type.
+    CHECK(result("fun b(x: Bool): Int = if x { 1 } else { 0 }\n"
+                 "fun main(): Int {\n    let a: Int? = 5\n    let n: Int? = none\n    let deep: Int? ? = a\n"
+                 "    return b(a == 5) + b(a != n) * 2 + b(n == none) * 4 + b(deep == a) * 8 + b(deep == n) * 16 +\n"
+                 "        b(deep == 6) * 32\n}\n") == 1 + 2 + 4 + 8);
+    // Lifting into arguments, struct fields, tuple elements and results.
+    CHECK(result("struct S(let a: Int?, let b: Int)\nfun or(x: Int?, y: Int): Int = x ?? y\n"
+                 "fun main(): Int {\n    let s = S(4, 5)\n    let t: (Int?, Int) = (6, 7)\n"
+                 "    return or(1, 0) + or(s.a, 0) + or(t.0, 0) + or(none, 20)\n}\n") == 1 + 4 + 6 + 20);
+    // `!` reads the value, or panics with the expression's location.
+    CHECK(result("fun main(): Int {\n    let x: Int? ? = 4\n    return x!! + 1\n}\n") == 5);
+    Frontend p;
+    const auto outcome = p.run("fun main(): Int {\n    let x: Int? = none\n    return x!\n}\n");
+    CHECK(outcome.trapped && outcome.trap == 5);
+    CHECK(mir::dump(*p.program).contains("    panic \"panic: unwrapped 'none' at mir.phs:3:12\\n\"\n"));
+}
+
 int main() {
     target_program();
     control_flow();
@@ -651,6 +684,7 @@ int main() {
     closures();
     generic_functions();
     generic_structs();
+    optionals();
     rejected_files();
     long_trees();
     std::println("mir tests passed");

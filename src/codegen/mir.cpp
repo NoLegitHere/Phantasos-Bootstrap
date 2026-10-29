@@ -127,6 +127,7 @@ std::string_view op_name(Op op) {
         case Op::CallIndirect: return "call";
         case Op::Closure: return "closure";
         case Op::Env: return "env";
+        case Op::None: return "none";
     }
     unreachable();
 }
@@ -157,7 +158,7 @@ std::string literal(std::string_view bytes) {
 std::string dump(const Program& program) {
     std::string out;
     for (const auto& layout : program.layouts) {
-        constexpr std::string_view kinds[] = {"struct", "tuple", "function", "environment"};
+        constexpr std::string_view kinds[] = {"struct", "tuple", "function", "environment", "optional"};
         out += std::format("{} @{} {{", kinds[layout.kind], layout.name);
         for (usize i = 0; i < layout.fields.size(); ++i)
             out += std::format("{} {}: {} +{}", i ? "," : "", layout.names[i], type_name(program, layout.fields[i]),
@@ -210,6 +211,7 @@ std::string dump(const Program& program) {
                         for (usize a = 0; a < inst.args.size(); ++a) out += (a ? ", " : "") + reg(inst.args[a]);
                         out += ')';
                         break;
+                    case Op::None: break;
                     case Op::Make:
                         for (usize a = 0; a < inst.args.size(); ++a) out += (a ? ", " : " ") + reg(inst.args[a]);
                         break;
@@ -237,6 +239,7 @@ std::string dump(const Program& program) {
                     break;
                 case Term::Ret: out += block.value.valid() ? std::format("    ret {}\n", reg(block.value)) : "    ret\n"; break;
                 case Term::Unreachable: out += "    unreachable\n"; break;
+                case Term::Panic: out += std::format("    panic {}\n", literal(program.strings[block.message])); break;
             }
         }
         out += "}\n";

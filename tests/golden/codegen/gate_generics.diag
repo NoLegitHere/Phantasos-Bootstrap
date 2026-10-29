@@ -7,9 +7,6 @@ gate_generics.phs:35:9: error[E0600]: stage0 code generation does not support va
 gate_generics.phs:44:5: error[E0600]: stage0 code generation does not support values of type 'Float64' yet
    44 |     identity(1.5)
       |     ^^^^^^^^^^^^^
-gate_generics.phs:45:5: error[E0600]: stage0 code generation does not support values of type 'Int?' yet
-   45 |     identity<Int?>(1)
-      |     ^^^^^^^^^^^^^^^^^
 gate_generics.phs:46:5: error[E0600]: stage0 code generation does not support type arguments of type 'Unit' yet
    46 |     identity(())
       |     ^^^^^^^^

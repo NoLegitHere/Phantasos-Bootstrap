@@ -16,8 +16,8 @@ gate_items.phs:29:11: error[E0600]: stage0 code generation does not support valu
 gate_items.phs:29:24: error[E0600]: stage0 code generation does not support values of type 'Float64' yet
    29 | fun float(x: Float64): Float64 = x * 2.0
       |                        ^^^^^^^
-gate_items.phs:31:14: error[E0600]: stage0 code generation does not support values of type 'Int?' yet
-   31 | fun optional(x: Int?): Int = x ?? 0
+gate_items.phs:31:14: error[E0600]: stage0 code generation does not support values of type 'Unit?' yet
+   31 | fun optional(x: Unit?): Int = 0
       |              ^
 gate_items.phs:33:5: error[E0600]: stage0 code generation does not support throwing functions yet
    33 | fun throwing() throws {}

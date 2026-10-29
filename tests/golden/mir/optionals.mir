@@ -1,0 +1,99 @@
+optional @i64? { some: bool +8, value: i64 +0 } size 16 align 8
+
+optional @i64?? { some: bool +16, value: @i64? +0 } size 24 align 8
+
+fun @find(%0: i64) -> @i64? {
+bb0:
+    %1: i64 = const 0
+    %2: bool = lt %0, %1
+    condbr %2, bb1, bb2
+bb1:
+    %3: @i64? = none
+    ret %3
+bb2:
+    %4: bool = const true
+    %5: @i64? = make %4, %0
+    ret %5
+}
+
+fun @main() -> i64 entry {
+bb0:
+    %0: i64 = const 0
+    %1: i64 = copy %0
+    %2: i64 = const 2
+    %3: @i64? = call @find(%2)
+    %4: bool = field %3, some
+    condbr %4, bb1, bb2
+bb1:
+    %5: i64 = field %3, value
+    %1: i64 = add %1, %5
+    br bb2
+bb2:
+    %6: i64 = const 1
+    %7: @i64? = call @find(%6)
+    %8: i64 = const 1
+    %9: bool = const true
+    %10: @i64? = make %9, %8
+    %12: bool = field %7, some
+    %13: bool = field %10, some
+    %16: bool = eq %12, %13
+    %14: i64 = field %7, value
+    %15: i64 = field %10, value
+    %17: bool = eq %14, %15
+    %11: bool = and %16, %17
+    %18: bool = copy %11
+    %19: i64 = const 3
+    %20: @i64? = call @find(%19)
+    %46: bool = const true
+    %47: @i64?? = make %46, %20
+    %21: @i64?? = copy %47
+    %22: bool = copy %18
+    condbr %18, bb3, bb4
+bb3:
+    %23: @i64?? = none
+    %25: bool = field %21, some
+    %26: bool = field %23, some
+    %29: bool = eq %25, %26
+    %27: @i64? = field %21, value
+    %28: @i64? = field %23, value
+    %31: bool = field %27, some
+    %32: bool = field %28, some
+    %35: bool = eq %31, %32
+    %33: i64 = field %27, value
+    %34: i64 = field %28, value
+    %36: bool = eq %33, %34
+    %30: bool = and %35, %36
+    %24: bool = and %29, %30
+    %37: bool = not %24
+    %22: bool = copy %37
+    br bb4
+bb4:
+    condbr %22, bb5, bb10
+bb5:
+    %38: bool = field %21, some
+    condbr %38, bb6, bb12
+bb6:
+    %39: @i64? = field %21, value
+    %40: @i64? = copy %39
+    br bb7
+bb7:
+    %42: bool = field %40, some
+    condbr %42, bb8, bb11
+bb8:
+    %43: i64 = field %40, value
+    %44: i64 = copy %43
+    br bb9
+bb9:
+    %1: i64 = add %1, %44
+    br bb10
+bb10:
+    ret %1
+bb11:
+    %45: i64 = const 0
+    %44: i64 = copy %45
+    br bb9
+bb12:
+    %41: @i64? = none
+    %40: @i64? = copy %41
+    br bb7
+}

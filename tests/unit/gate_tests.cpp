@@ -96,7 +96,7 @@ enum E { A, B }
 let g = 1
 type T = Int
 fun real(x: Float32): Float32 = x
-fun opt(x: Int?) {}
+fun opt(x: Unit?) {}
 fun bad() throws {}
 fun conv(x: inout Int) {}
 fun dflt(x: Int = 0) {}
@@ -219,7 +219,7 @@ fun main(): Int = pair(identity(1), identity<Bool>(true)).0 + count("s", 2)
                {DiagCode::InstanceLimit});
     // A generic function's body is still checked once, against the subset.
     Frontend body;
-    body.gate("fun opt<T>(x: T): Int {\n    let y: Int? = 1\n    return 0\n}\nfun main() {}\n",
+    body.gate("fun opt<T>(x: T): Int {\n    let y: Float64 = 1.5\n    return 0\n}\nfun main() {}\n",
               {DiagCode::UnsupportedCodegen});
 }
 

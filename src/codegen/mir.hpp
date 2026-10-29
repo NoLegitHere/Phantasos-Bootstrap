@@ -36,7 +36,11 @@
 // argument; a top-level function's value has a null environment. A closure
 // is a function whose first parameter is that environment: a pointer to its
 // captured values, laid out like a struct and never freed, or null when it
-// captures nothing.
+// captures nothing. An optional is an aggregate of a Bool tag, set when it
+// holds a value, and that value; `none` is all zero bytes, so optionals of
+// equal values have equal fields. Lowering leaves the lifting of a value into
+// an optional implicit: a value stored where its optional is expected is
+// wrapped by a final pass, so every operand has its destination's type.
 
 namespace phs::mir {
 
@@ -71,6 +75,7 @@ enum class Op : u8 {
     CallIndirect,  // a call of the function value a with args
     Closure,  // the function value of closure function callee, its environment holding args
     Env,      // captured value imm of the environment that a points to
+    None,     // the `none` of optional type dst: every byte zero
 };
 
 struct Inst {
@@ -86,13 +91,16 @@ struct Inst {
     std::vector<Reg> args;
 };
 
-enum class Term : u8 { Br, CondBr, Ret, Unreachable };
+// Panic writes its message to standard error and ends the program with exit
+// status 101; `opt!` on `none` panics with its source location.
+enum class Term : u8 { Br, CondBr, Ret, Unreachable, Panic };
 
 struct Block {
     std::vector<Inst> insts;
     Term term = Term::Unreachable;
     Reg value;                // CondBr: the Bool condition; Ret: the result, if any
     u32 target = 0, other = 0;  // Br: target; CondBr: target if true, other if false
+    u32 message = 0;            // Panic: index into Program::strings
 };
 
 struct Function {
@@ -118,10 +126,11 @@ inline bool is_inout(const Function& fun, u32 param) { return param < fun.inout.
 // stable among equal alignments, and the size is a multiple of the alignment.
 // A function type's layout has two U64 fields, code and env, and records the
 // signature that indirect calls through it follow. A closure's environment
-// has a field for each captured value, named after it.
+// has a field for each captured value, named after it. An optional's layout
+// has the fields some, a Bool, and value.
 struct Layout {
-    enum Kind : u8 { Struct, Tuple, Function, Environment };
-    std::string name;  // a struct's or closure's name, or a tuple or function type's spelling
+    enum Kind : u8 { Struct, Tuple, Function, Environment, Optional };
+    std::string name;  // a struct's or closure's name, or a tuple, function or optional type's spelling
     Kind kind = Struct;  // a tuple's fields are named 0, 1, ...
     std::vector<Type> fields;
     std::vector<std::string> names;
@@ -135,7 +144,7 @@ struct Program {
     std::vector<Function> functions;
     u32 main = 0;
     std::vector<std::string> strings;  // literal bytes, each distinct value once
-    std::vector<Layout> layouts;       // each struct, tuple and function type once, and each environment
+    std::vector<Layout> layouts;       // each struct, tuple, function and optional type once, and each environment
 };
 
 std::string type_name(const Program& program, Type type);
@@ -150,8 +159,9 @@ void place_fields(const Program& program, Layout& layout);
 // assignment's target before its value. Unreachable blocks are removed.
 // Expression lowering is iterative; control nesting follows the syntax, which
 // the parser bounds (E0112).
+// Panic messages name source locations through sources.
 [[nodiscard]] Program lower(const ast::File& file, const Resolution& resolution, ScalarTypes& types,
-                            const Interner& names);
+                            const Interner& names, const SourceManager& sources);
 
 [[nodiscard]] std::string dump(const Program& program);
 

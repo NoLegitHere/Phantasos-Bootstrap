@@ -1,0 +1,99 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Optionals: if let and while let, ?? with plain and optional fallbacks, !,
+// equality with none, values and other optionals, nested optionals, values
+// lifted into optional parameters, results, fields and tuple elements, and
+// optionals of structs, Strings, tuples and function values.
+
+struct Point(let x: Int, let y: Int)
+
+struct Slot(var item: Int?, let name: String?) {
+    mut fun take(): Int? {
+        let old = item
+        item = none
+        return old
+    }
+}
+
+fun find(n: Int): Int? {
+    if n < 0 { return none }
+    return n * 2
+}
+
+fun label(n: Int): String? = if n == 1 { "one" } else { none }
+
+fun nearest(n: Int): Point? {
+    if n == 0 { return none }
+    return Point(n, n + 1)
+}
+
+fun or_zero(x: Int?): Int = x ?? 0
+
+fun identity<T>(x: T): T = x
+
+fun main(): Int {
+    if let v = find(4) { print(v) }
+    if let v = find(-1) { print(v) } else { print("no value") }
+    print(find(-3) ?? 7)
+    print(label(1) ?? "other")
+    print(label(2) ?? "other")
+
+    var count = 0
+    var next: Int? = 3
+    while let n = next {
+        count += n
+        next = if n > 1 { n - 1 } else { none }
+    }
+    print(count)
+
+    let a: Int? = 5
+    print(a == 5)
+    print(a != none)
+    print(find(-1) == none)
+    print(a == find(2))
+    print(find(2) == find(2))
+
+    let deep: Int? ? = none
+    let shallow: Int? ? = a
+    print(deep == none)
+    print(shallow == 5)
+    print(shallow == a)
+    print((deep ?? a) ?? 0)
+    print((deep ?? none) == none)
+
+    if let p = nearest(2) { print(p.x + p.y) }
+    print((nearest(0) ?? Point(9, 9)).y)
+
+    print(or_zero(4) + or_zero(none))
+    var slot = Slot(1, "slot")
+    print(slot.take() ?? -1)
+    print(slot.take() ?? -1)
+    print(slot.name ?? "unnamed")
+
+    let pair: (Int?, Bool) = (3, true)
+    print(pair.0 ?? 0)
+    let maybe_pair: (Int, Int)? = (1, 2)
+    if let p = maybe_pair { print(p.0 + p.1) }
+
+    let twice: (fun(Int) -> Int)? = { n -> n * 2 }
+    if let f = twice { print(f(21)) }
+    let picked: Int? = identity<Int?>(8)
+    print(picked ?? 0)
+    let lifted: fun(Int) -> Int? = { n -> n }
+    print(lifted(6) ?? 0)
+    print(find(5)! + nearest(1)!.y + shallow!!)
+    return or_zero(find(10))
+}

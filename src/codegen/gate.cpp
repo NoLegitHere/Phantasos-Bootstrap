@@ -76,7 +76,7 @@ std::string_view binary_name(BinOp op) {
 }
 
 bool supported_binary(BinOp op) {
-    return op != BinOp::Coalesce && op != BinOp::Range && op != BinOp::RangeExcl && op != BinOp::Shl &&
+    return op != BinOp::Range && op != BinOp::RangeExcl && op != BinOp::Shl &&
            op != BinOp::Shr;
 }
 
@@ -314,9 +314,9 @@ private:
                 std::vector<ScalarType> held{types_.binding(values_.at(param.name.span.lo))};
                 std::unordered_set<usize> seen;
                 while (!held.empty()) {
-                    const auto field = held.back();
+                    // An optional holds its value inline.
+                    const auto field = held.back().scalar();
                     held.pop_back();
-                    if (field.optional_depth) continue;
                     if ((field.kind == ScalarType::Tuple || field.kind == ScalarType::Function ||
                          field.kind == ScalarType::Nominal) &&
                         !seen.insert(field.detail).second)
@@ -371,6 +371,9 @@ private:
     }
 
     bool supported_type(ScalarType type) const {
+        // An optional holds a value, so its value type cannot be 'Unit' or 'Never'.
+        if (type.optional_depth)
+            return type.kind != ScalarType::Unit && type.kind != ScalarType::Never && supported_type(type.scalar());
         if (supported_scalar(type)) return true;
         if ((type.kind == ScalarType::Tuple || type.kind == ScalarType::Function) && !type.optional_depth) {
             // Composite types can share parts, so each answer is kept.
@@ -494,8 +497,15 @@ private:
         }
     }
 
+    // A `let` condition stores the value inside the optional it tests.
     void condition(const Cond& cond, std::vector<Work>& work) {
-        if (cond.is_let) { unsupported(cond.span, "'let' conditions"); return; }
+        if (cond.is_let) {
+            const auto it = values_.find(cond.name.span.lo);
+            if (it == values_.end() || !stored(cond.name.span, types_.binding(it->second), "locals")) {
+                if (it != values_.end()) rejected_.insert(it->second.value);
+                return;
+            }
+        }
         work.push_back({cond.expr, true});
     }
 
@@ -577,7 +587,7 @@ private:
 
     void expression(const Expr& expr, bool used, std::vector<Work>& work) {
         if (!supported_kind(expr)) return;
-        if (const auto* binary = as<BinaryExpr>(&expr)) {
+        if (const auto* binary = as<BinaryExpr>(&expr); binary && binary->op != BinOp::Coalesce) {
             const auto lhs = types_.expression(binary->lhs).kind, rhs = types_.expression(binary->rhs).kind;
             if (lhs == ScalarType::Tuple || rhs == ScalarType::Tuple) {
                 unsupported(expr.span, "comparisons of tuples");
@@ -602,6 +612,7 @@ private:
         if (!control && !type(expr.span, actual)) return;
         switch (expr.kind) {
             case ExprKind::Int: case ExprKind::Bool: case ExprKind::String: case ExprKind::Unit: case ExprKind::SelfValue:
+            case ExprKind::None:
                 return;
             case ExprKind::Name: name(*cast<NameExpr>(&expr)); return;
             case ExprKind::GenericInst:
@@ -610,11 +621,12 @@ private:
                 return;
             case ExprKind::Paren: work.push_back({cast<ParenExpr>(&expr)->inner, used}); return;
             case ExprKind::Unary: work.push_back({cast<UnaryExpr>(&expr)->operand, true}); return;
+            case ExprKind::Unwrap: work.push_back({cast<UnwrapExpr>(&expr)->operand, true}); return;
             case ExprKind::Binary: {
                 const auto& binary = *cast<BinaryExpr>(&expr);
-                // Strings are only passed around whole for now.
-                if (types_.expression(binary.lhs).kind == ScalarType::String ||
-                    types_.expression(binary.rhs).kind == ScalarType::String) {
+                // Strings are only passed around whole for now; `??` only moves them.
+                if (binary.op != BinOp::Coalesce && (types_.expression(binary.lhs).kind == ScalarType::String ||
+                                                     types_.expression(binary.rhs).kind == ScalarType::String)) {
                     unsupported(expr.span, "operators on strings");
                     return;
                 }
@@ -689,7 +701,8 @@ private:
             case ExprKind::Int: case ExprKind::Bool: case ExprKind::String: case ExprKind::Unit: case ExprKind::Name:
             case ExprKind::Paren: case ExprKind::Unary: case ExprKind::Binary: case ExprKind::Call: case ExprKind::Block:
             case ExprKind::If: case ExprKind::Member: case ExprKind::SelfValue: case ExprKind::Tuple:
-            case ExprKind::TupleField: case ExprKind::Closure: case ExprKind::GenericInst:
+            case ExprKind::TupleField: case ExprKind::Closure: case ExprKind::GenericInst: case ExprKind::None:
+            case ExprKind::Unwrap:
                 return true;
             default:
                 unsupported(expr.span, expr_name(expr.kind));
@@ -707,6 +720,7 @@ private:
                 if (const auto id = target(*name); id.valid() && rejected_.contains(id.value)) return true;
             } else if (const auto* paren = as<ParenExpr>(expr)) work.push_back(paren->inner);
             else if (const auto* unary = as<UnaryExpr>(expr)) work.push_back(unary->operand);
+            else if (const auto* unwrap = as<UnwrapExpr>(expr)) work.push_back(unwrap->operand);
             else if (const auto* binary = as<BinaryExpr>(expr)) {
                 work.push_back(binary->lhs);
                 work.push_back(binary->rhs);

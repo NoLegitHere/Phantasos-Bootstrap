@@ -7,9 +7,6 @@ gate_tuples.phs:21:10: error[E0600]: stage0 code generation does not support val
 gate_tuples.phs:23:10: error[E0600]: stage0 code generation does not support values of type '(Unit, Int)' yet
    23 | fun unit(t: ((), Int)): Int = t.1
       |          ^
-gate_tuples.phs:25:11: error[E0600]: stage0 code generation does not support values of type '(Int, Int)?' yet
-   25 | fun maybe(t: (Int, Int)?): Int = 0
-      |           ^
 gate_tuples.phs:29:8: error[E0600]: stage0 code generation does not support comparisons of tuples yet
    29 |     if t == (1, 2) { return 0 }
       |        ^^^^^^^^^^^

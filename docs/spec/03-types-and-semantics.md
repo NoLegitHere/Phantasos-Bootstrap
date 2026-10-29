@@ -1028,8 +1028,10 @@ the subset, so that nothing half-checked reaches code generation:
   not generic, with or without a default body. Type parameter bounds may
   name only plain interfaces.
 - **Types.** `Bool`, `Int8` to `Int64`, `UInt8` to `UInt64`, `Int`, `UInt`,
-  `String`, `Unit` and `Never`, without optional wrappers. Parameters and
+  `String`, `Unit` and `Never`. Parameters and
   locals need one of the value types, so they cannot be `Unit` or `Never`.
+  An optional of a value type of the subset is a value type too, at any
+  depth; `Unit?` and `Never?` are not.
   `String` values come from literals and are only passed around whole: as
   locals, arguments, results and fields. A plain struct whose fields all have
   value types of the subset is a value type too, and so is an instance of a
@@ -1038,14 +1040,14 @@ the subset, so that nothing half-checked reaches code generation:
   tuple whose elements all have value types of the subset, and a
   non-optional, non-throwing function type whose parameters have value types
   of the subset and whose result is a type of the subset. A struct cannot
-  take or return itself through a function type in its fields either.
-  Inside a generic function or struct, its own type parameters are value
-  types as well, but not optional ones.
+  take or return itself through a function type or an optional in its fields
+  either. Inside a generic function or struct, its own type parameters are
+  value types as well.
 - **Statements.** `let` and `var` locals, with or without an initializer;
   assignment and compound assignment to locals, to `self` in a `mut fun`,
   and to fields of either at any depth, tuple elements included; tuple
   destructuring with `let (a, b) = e` and `var (a, b) = e`; `if`, `while`, `loop`, `break`,
-  `continue` and `return`.
+  `continue` and `return`, with `if let` and `while let` conditions.
 - **Expressions.** Integer, Boolean and string literals, `()`, local and
   parameter names, parentheses, direct calls to top-level functions, generic
   ones with explicit or inferred type arguments that are value types of the
@@ -1056,13 +1058,15 @@ the subset, so that nothing half-checked reaches code generation:
   `.0` element reads, top-level functions named as values (3.14), generic
   ones included, with inferred or explicit type arguments, closures
   (3.29) and calls of function values, unary `-`, `!` and `~`, arithmetic including
-  the wrapping forms, `&`, `|`, `^`, comparisons, `&&` and `||`. Used `if` and block
+  the wrapping forms, `&`, `|`, `^`, comparisons, `&&` and `||`, `none`, `??`, `!`,
+  and `==` and `!=` on optionals whose innermost type is a scalar other than
+  `String`. Used `if` and block
   results are allowed where their type is known (3.24).
 
 Everything else reports `E0600`. That includes shifts, `for`, `defer`,
 `throw`, `match`, `unsafe` blocks, operators on strings, string interpolation,
-floating-point values, arrays, comparisons of tuples,
-optionals, classes, enums, values of an interface type, generic
+floating-point values, arrays, comparisons of tuples and of optionals of
+anything but scalars, `?.`, classes, enums, values of an interface type, generic
 interfaces, interfaces that extend others, `where` clauses, members other
 than struct fields and method calls, method values, globals, operators on function values,
 and values of `where`-constrained functions. A closure's body is
@@ -1168,7 +1172,10 @@ with the value `main` returns, which the kernel truncates to its low 8 bits,
 or with 0 when `main` returns nothing. A trap writes `panic: arithmetic
 overflow` or `panic: division by zero` to standard error and exits with
 status 101. When mapping memory for closure environments fails, the program
-panics with `panic: out of memory`, trap code 4. Stage0 does not print a
+panics with `panic: out of memory`, trap code 4. `opt!` on `none` writes
+`panic: unwrapped 'none' at <file>:<line>:<column>`, naming where the `!`
+expression starts and the file as it was given to the compiler; it passes
+the message to `__phantasos_trap` with trap code 5. Stage0 does not print a
 backtrace yet, and it does not detect stack overflow, so recursion that runs
 out of stack ends the process with a signal.
 

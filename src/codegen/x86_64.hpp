@@ -46,7 +46,8 @@
 
 namespace phs::x86_64 {
 
-enum class Trap : u32 { Overflow = 1, DivideByZero = 2, WriteFailed = 3, OutOfMemory = 4 };
+// A Panic trap writes the message that rsi and rdx hold, its address and length.
+enum class Trap : u32 { Overflow = 1, DivideByZero = 2, WriteFailed = 3, OutOfMemory = 4, Panic = 5 };
 
 inline constexpr std::string_view kTrapSymbol = "__phantasos_trap";
 inline constexpr std::string_view kEntrySymbol = "_start";

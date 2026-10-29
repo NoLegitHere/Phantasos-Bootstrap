@@ -1,0 +1,83 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Match patterns (3.35) are typed from the value they match: case patterns
+// name its enum's cases, with one pattern per payload field.
+enum Tok {
+    num(Int)
+    pair(a: Int, b: Bool)
+    plus
+}
+
+enum Other { plus }
+
+// An alias names the enum it expands to.
+type Others = Other
+type Toks = Tok
+
+enum Expr {
+    lit(Tok)
+    neg(Tok)
+}
+
+fun valid(e: Expr, n: Int?): Int {
+    let a: Int = match e {
+        .lit(.num(value)) -> value
+        Expr.lit(Tok.pair(x, flag)) -> if flag { x } else { 0 }
+        .neg(.num(value)) | .lit(.pair(value, _)) -> value
+        _ -> 0
+    }
+    let b: Int = match n {
+        none -> 0
+        1 | 2 -> 1
+        _ -> 2
+    }
+    return a + b
+}
+
+fun errors(t: Tok, i: Int) {
+    let a: Int = match t {
+        .nope -> 1
+        .plus(x) -> 2
+        .num -> 3
+        .pair(x) -> 4
+        Other.plus -> 5
+        Others.plus -> 5
+        Toks.num(n) -> n
+        3 -> 6
+        .num(true) -> 7
+        .pair(_, n) | .num(n) -> 8
+        _ -> 0
+    }
+    let b: Int = match i {
+        .plus -> 1
+        _ -> 0
+    }
+}
+
+// Alternatives that bind a name through `is T as x` give it type T.
+open class Shape {}
+class Circle: Shape {}
+class Square: Shape {}
+enum Holder { item(Shape) }
+
+fun shapes(h: Holder): Int {
+    let n: Int = match h {
+        .item(is Circle as x) | .item(is Square as x) -> 1
+        .item(is Circle as y) | .item(y) -> 2
+        _ -> 0
+    }
+    return n
+}

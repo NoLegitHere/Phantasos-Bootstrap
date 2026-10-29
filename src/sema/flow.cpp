@@ -431,7 +431,8 @@ private:
                 return {Access::Immutable, subject, found->declared, "declared with 'let' here"};
             }
             case BindingKind::Pattern:
-                return {Access::Immutable, subject, binding.name.span, "pattern bindings are immutable"};
+                // A payload binding borrows from the matched value (3.35).
+                return {Access::ReadOnly, subject, binding.name.span, "a pattern binding borrows from the matched value"};
             case BindingKind::Parameter: {
                 if (closure_params_.contains(binding.name.span.lo))
                     return {Access::ReadOnly, subject, binding.name.span, "closure parameters are read-only"};
@@ -650,9 +651,12 @@ private:
             const auto found_overlap = overlap(*found, it->path);
             if (found_overlap == Overlap::No) continue;
             if (shown(DiagCode::ExclusiveAccess) && !reported_exclusive_.insert(span.lo)) return;
-            auto& d = error(DiagCode::ExclusiveAccess, span, "cannot {} '{}' while a 'for' loop runs over '{}'{}", verb,
-                            spelled, text(it->span), found_overlap == Overlap::Maybe ? ", which it may overlap" : "");
-            d.notes.push_back({it->span, "the loop runs over it here"});
+            const auto maybe = found_overlap == Overlap::Maybe ? ", which it may overlap" : "";
+            auto& d = it->matched ? error(DiagCode::ExclusiveAccess, span, "cannot {} '{}' while a 'match' arm borrows from '{}'{}",
+                                          verb, spelled, text(it->span), maybe)
+                                  : error(DiagCode::ExclusiveAccess, span, "cannot {} '{}' while a 'for' loop runs over '{}'{}",
+                                          verb, spelled, text(it->span), maybe);
+            d.notes.push_back({it->span, it->matched ? "the pattern bindings borrow from it here" : "the loop runs over it here"});
             return;
         }
     }
@@ -1114,6 +1118,13 @@ private:
         }
     }
 
+    // What a binding that borrows its value is called: a loop element or a
+    // pattern binding.
+    std::optional<std::string> borrowed_binding(const ResolvedBinding& binding) const {
+        if (binding.kind == BindingKind::Local && loop_elements_.contains(binding.name.span.lo)) return "loop element";
+        if (binding.kind == BindingKind::Pattern) return "pattern binding";
+        return std::nullopt;
+    }
     // A consumed value that the callable only borrows cannot move (3.30): a
     // parameter other than `own`, `self`, a field, an element, or a capture
     // inside a closure body. Values of Copy types are copied instead.
@@ -1144,9 +1155,10 @@ private:
                     fix = closure_params_.contains(binding.name.span.lo) || inout
                               ? "use '" + spelled + ".clone()' to move a copy"
                               : "declare it 'own' to take ownership, or use '" + spelled + ".clone()' to move a copy";
-                } else if (binding.kind == BindingKind::Local && loop_elements_.contains(binding.name.span.lo)) {
-                    // `for x in a` borrows each element of a (3.33).
-                    subject = "loop element '" + spelled + "'";
+                } else if (const auto borrowed = borrowed_binding(binding)) {
+                    // `for x in a` borrows each element of a (3.33), and a
+                    // pattern binding borrows part of the matched value (3.35).
+                    subject = *borrowed + " '" + spelled + "'";
                     fix = "use '" + spelled + ".clone()' to move a copy";
                 } else {
                     return false;
@@ -1255,6 +1267,8 @@ private:
             const auto& binding = resolution_.binding(capture.binding);
             const auto name = names_.str(binding.name.sym);
             // A non-Copy local or `own` parameter moves into the closure.
+            // Moving it is changing the place a loop or match arm borrows from.
+            if (state.live && movable(capture.binding)) changes(Path{root_key(capture.binding), {}}, capture.use, name, "move");
             use(capture.binding, capture.use, true, "captured", state);
             // So does a capture of the enclosing closure, which keeps it (D3).
             if (closure_ && state.live && captured_.contains(capture.binding.value) &&
@@ -1262,14 +1276,14 @@ private:
                 borrow_error(capture.use, "captured '" + std::string(name) + "'",
                              "a closure can be called more than once; capture a copy made with '" + std::string(name) +
                                  ".clone()' instead");
-            // A loop element is borrowed from its array, so it cannot move into the closure (3.33).
-            if (state.live && binding.kind == BindingKind::Local && loop_elements_.contains(binding.name.span.lo) &&
-                !copyable(types_.binding(capture.binding)))
+            // A loop element is borrowed from its array, and a pattern binding
+            // from the matched value, so neither can move into the closure (3.33, 3.35).
+            const auto borrowed = borrowed_binding(binding);
+            if (state.live && borrowed && !copyable(types_.binding(capture.binding)))
                 facts_.copied_captures.insert({&closure, static_cast<u32>(capture.binding.value)});
-            if (state.live && binding.kind == BindingKind::Local && loop_elements_.contains(binding.name.span.lo) &&
-                !copyable(types_.binding(capture.binding), true)) {
+            if (state.live && borrowed && !copyable(types_.binding(capture.binding), true)) {
                 invalid_captures_.insert(capture.binding.value);
-                borrow_error(capture.use, "loop element '" + std::string(name) + "'",
+                borrow_error(capture.use, *borrowed + " '" + std::string(name) + "'",
                              "capture a copy made with '" + std::string(name) + ".clone()' instead");
             }
             if (const auto* found = local(capture.binding)) {
@@ -1654,6 +1668,17 @@ private:
         }
     }
 
+    static bool binds(const Pattern& root) {
+        std::vector<const Pattern*> work{&root};
+        while (!work.empty()) {
+            const Pattern* pat = work.back();
+            work.pop_back();
+            if (pat->kind == PatKind::Binding || (pat->kind == PatKind::Is && !cast<IsPat>(pat)->binding.sym.empty())) return true;
+            if (const auto* alt = as<AltPat>(pat)) for (const Pattern* p : alt->alts) work.push_back(p);
+            else if (const auto* c = as<CasePat>(pat)) for (const Pattern* p : c->args) work.push_back(p);
+        }
+        return false;
+    }
     void control_flow(const Expr& expr, State& state) {
         if (const auto* block = as<BlockExpr>(&expr)) {
             scopes_.push_back(defers_.size());
@@ -1669,7 +1694,11 @@ private:
             // Exhaustiveness is checked separately; some arm always runs. A
             // failed pattern or guard continues to the next arm with its effects.
             State out = dead();
+            // Bindings borrow from the matched place, which the arm cannot change (3.35).
+            auto subject = copyable(types_.expression(match->scrutinee)) ? std::nullopt : path(match->scrutinee);
             for (const auto& arm : match->arms) {
+                const bool borrows = subject && binds(*arm.pattern);
+                if (borrows) iterated_.push_back({*subject, unparen(match->scrutinee)->span, true});
                 State path = state;
                 eval(arm.guard, path);
                 // An irrefutable pattern always runs its guard before the next arm.
@@ -1677,6 +1706,7 @@ private:
                 if (arm.guard && irrefutable) state = path;
                 else if (arm.guard) merge(state, path);
                 eval(arm.body, path);
+                if (borrows) iterated_.pop_back();
                 merge(out, path);
                 // Later arms are unreachable after an unguarded catch-all.
                 if (irrefutable && !arm.guard) break;
@@ -1954,6 +1984,7 @@ private:
     struct Iterated {
         Path path;
         Span span;
+        bool matched = false;  // the value a `match` arm's bindings borrow from, not a loop's array
     };
     std::vector<Iterated> iterated_;       // the arrays that the enclosing `for` loops run over, innermost last
     FlowFacts facts_;

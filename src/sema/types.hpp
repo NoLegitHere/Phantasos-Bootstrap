@@ -269,6 +269,11 @@ public:
         const auto it = array_members_.find(expr);
         return it == array_members_.end() ? std::nullopt : std::optional{it->second};
     }
+    // The enum case a case pattern matches, once its scrutinee is known (3.35).
+    BindingId pattern_case(const ast::CasePat* pattern) const {
+        const auto it = pattern_cases_.find(pattern);
+        return it == pattern_cases_.end() ? BindingId{} : it->second;
+    }
     const ExpandedType* alias(BindingId id) const { return aliases_.alias(id); }
     const CheckedHierarchy* hierarchy(BindingId id) const {
         const auto it = hierarchies_.find(id.value);
@@ -301,6 +306,7 @@ private:
     std::unordered_map<const ast::Expr*, std::vector<ScalarType>> function_arguments_;
     NodeMap<const ast::Expr*, CheckedMember> members_;
     std::unordered_map<const ast::Expr*, ArrayMember> array_members_;
+    std::unordered_map<const ast::CasePat*, BindingId> pattern_cases_;
     IdMap<CheckedHierarchy> hierarchies_;
     AliasExpansion aliases_;
     TypeTable types_;

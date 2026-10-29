@@ -1,0 +1,36 @@
+match_patterns.phs:52:10: error[E0450]: enum 'Tok' has no case 'nope'
+   52 |         .nope -> 1
+      |          ^^^^
+match_patterns.phs:53:9: error[E0413]: enum case 'Tok.plus' has no payload; write it without parentheses
+   53 |         .plus(x) -> 2
+      |         ^^^^^^^^
+match_patterns.phs:54:9: error[E0413]: enum case 'Tok.num' carries a payload; match it with '.num(...)'
+   54 |         .num -> 3
+      |         ^^^^
+match_patterns.phs:55:9: error[E0413]: enum case 'Tok.pair' has 2 payload fields, but the pattern has 1
+   55 |         .pair(x) -> 4
+      |         ^^^^^^^^
+match_patterns.phs:56:9: error[E0400]: expected a case of 'Tok', found one of 'Other'
+   56 |         Other.plus -> 5
+      |         ^^^^^^^^^^
+match_patterns.phs:57:9: error[E0400]: expected a case of 'Tok', found one of 'Other'
+   57 |         Others.plus -> 5
+      |         ^^^^^^^^^^^
+match_patterns.phs:59:9: error[E0400]: expected 'Tok', found 'Int'
+   59 |         3 -> 6
+      |         ^
+match_patterns.phs:60:14: error[E0400]: expected 'Int', found 'Bool'
+   60 |         .num(true) -> 7
+      |              ^^^^
+match_patterns.phs:61:28: error[E0400]: 'n' has type 'Int' here but 'Bool' in an earlier alternative
+   61 |         .pair(_, n) | .num(n) -> 8
+      |                            ^
+match_patterns.phs:65:9: error[E0400]: case pattern 'plus' needs an enum to match, found 'Int'
+   65 |         .plus -> 1
+      |         ^^^^^
+match_patterns.phs:78:52: error[E0400]: 'x' has type 'Square' here but 'Circle' in an earlier alternative
+   78 |         .item(is Circle as x) | .item(is Square as x) -> 1
+      |                                                    ^
+match_patterns.phs:79:39: error[E0400]: 'y' has type 'Shape' here but 'Circle' in an earlier alternative
+   79 |         .item(is Circle as y) | .item(y) -> 2
+      |                                       ^

@@ -574,6 +574,77 @@ let mixed = Tok.plus == Other.plus
     CHECK(generic.binding("a") == Type::Deferred);
 }
 
+// Match patterns (3.35): bindings take payload field types, through nested
+// cases and alternatives, and case patterns record the case they match.
+void match_patterns() {
+    Frontend f;
+    f.check(R"(
+enum Inner { a(Int8), b }
+enum Outer {
+    wrap(Inner)
+    pair(left: Bool, right: UInt)
+    text(String)
+}
+fun eval(o: Outer, n: Int?): Int {
+    let first: Int = match o {
+        .wrap(.a(small)) -> 1
+        Outer.pair(flag, count) -> 2
+        .text(words) | .text(words) -> 3
+        .wrap(Inner.b) -> 4
+        whole -> 5
+    }
+    let second: Int = match n {
+        none -> 0
+        3 -> 3
+        value -> 1
+    }
+    return first + second
+}
+)");
+    CHECK(f.binding("small") == Type::Int8 && f.binding("flag") == Type::Bool && f.binding("count") == Type::UInt);
+    CHECK(f.binding("words") == Type::String && f.binding("value") == Type{Type::Int}.optional());
+    CHECK(f.binding("whole").kind == Type::Nominal);
+    const auto* fun = ast::cast<ast::FunItem>(f.result.syntax->items[2]);
+    const auto* var = ast::cast<ast::VarStmt>(ast::cast<ast::BlockExpr>(fun->body)->stmts[0]);
+    const auto* match = ast::cast<ast::MatchExpr>(var->init);
+    const auto* wrap = ast::cast<ast::CasePat>(match->arms[0].pattern);
+    const auto id = f.result.scalar_types->pattern_case(wrap);
+    CHECK(id.valid() && f.session.names().str(f.result.resolution->binding(id).name.sym) == "wrap");
+    const auto inner = f.result.scalar_types->pattern_case(ast::cast<ast::CasePat>(wrap->args[0]));
+    CHECK(inner.valid() && f.session.names().str(f.result.resolution->binding(inner).name.sym) == "a");
+
+    Frontend errors;
+    errors.check(R"(
+enum Tok {
+    num(Int)
+    pair(a: Int, b: Bool)
+    plus
+}
+enum Other { plus }
+fun bad(t: Tok, i: Int) {
+    let a: Int = match t {
+        .nope -> 1
+        .plus(x) -> 2
+        .num -> 3
+        .pair(x) -> 4
+        Other.plus -> 5
+        3 -> 6
+        .num(true) -> 7
+        .pair(_, n) | .num(n) -> 8
+        _ -> 0
+    }
+    let b: Int = match i {
+        .plus -> 1
+        _ -> 0
+    }
+}
+)", {DiagCode::UnknownMember, DiagCode::CasePayload, DiagCode::CasePayload, DiagCode::CasePayload,
+      DiagCode::ScalarTypeMismatch, DiagCode::ScalarTypeMismatch, DiagCode::ScalarTypeMismatch,
+      DiagCode::ScalarTypeMismatch, DiagCode::ScalarTypeMismatch});
+    // A failed case pattern gives its bindings the error type.
+    CHECK(errors.binding("x") == Type::Error);
+}
+
 int main() {
     retained_inference_and_context();
     diagnostics_and_suppression();
@@ -588,4 +659,5 @@ int main() {
     long_trees_and_forward_chains();
     optionals();
     enum_cases();
+    match_patterns();
 }

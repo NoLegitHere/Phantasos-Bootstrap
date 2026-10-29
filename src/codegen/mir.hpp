@@ -45,7 +45,10 @@
 // array is an aggregate of three words: a pointer to its elements, never
 // freed, and its count and capacity. Copying an array copies those words, so
 // the copies share the elements; a store through one is seen by all, and
-// the checker's moves (3.30) keep only one in use.
+// the checker's moves (3.30) keep only one in use. An enum is an aggregate
+// of a tag, the index of its case, and the fields of every case's payload,
+// which share the bytes after the tag: only the fields of the case the tag
+// names hold a value, and the other bytes are zero.
 
 namespace phs::mir {
 
@@ -87,6 +90,7 @@ enum class Op : u8 {
     Reserve,  // the array a with room for one more element: a full one's elements move to new
               // memory with twice the capacity, or 4 when it was 0
     Allocate, // a new array of type dst whose count and capacity are the I64 a, its elements zero
+    Case,     // the enum of type dst holding case imm, its payload fields from args
 };
 
 struct Inst {
@@ -94,10 +98,10 @@ struct Inst {
     Reg dst;              // invalid for a call without a value and for print
     Reg a, b;             // operands; comparisons use the operand type
     u64 imm = 0;          // Const: the value, sign-extended for signed types; Str: index into Program::strings;
-                          // Field, With, Env: the field's declaration index
+                          // Field, With, Env: the field's declaration index; Case: the case's index
     u32 callee = 0;       // Call, FnRef, Closure: function index
     // Call: arguments in parameter order, a method's receiver first;
-    // CallIndirect: arguments in parameter order; Make: field values;
+    // CallIndirect: arguments in parameter order; Make, Case: field values;
     // Closure: the captured values, in environment order; Array: the
     // elements; Store: the value stored
     std::vector<Reg> args;
@@ -142,10 +146,13 @@ inline bool is_inout(const Function& fun, u32 param) { return param < fun.inout.
 // has a field for each captured value, named after it. An optional's layout
 // has the fields some, a Bool, and value. An array's layout has the fields
 // data, a U64 pointer to its elements, each element's size apart, and count
-// and capacity, both I64.
+// and capacity, both I64. An enum's layout has the field tag first, at
+// offset 0, then each case's payload fields, named case.label or case.0,
+// case.1, ...; every case places its fields like a struct's from the same
+// offset, the tag's size rounded up to the largest payload alignment.
 struct Layout {
-    enum Kind : u8 { Struct, Tuple, Function, Environment, Optional, Array };
-    std::string name;  // a struct's or closure's name, or a tuple, function, optional or array type's spelling
+    enum Kind : u8 { Struct, Tuple, Function, Environment, Optional, Array, Enum };
+    std::string name;  // a struct's, enum's or closure's name, or a tuple, function, optional or array type's spelling
     Kind kind = Struct;  // a tuple's fields are named 0, 1, ...
     std::vector<Type> fields;
     std::vector<std::string> names;
@@ -154,13 +161,17 @@ struct Layout {
     std::vector<Type> params;  // Function: parameter types
     Type result = Type::Unit;  // Function: result type
     Type element = Type::Unit;  // Array: element type
+    // Enum: each case's name and the index of its first payload field; its
+    // fields run to the next case's first one.
+    std::vector<std::string> cases;
+    std::vector<u32> payloads;
 };
 
 struct Program {
     std::vector<Function> functions;
     u32 main = 0;
     std::vector<std::string> strings;  // literal bytes, each distinct value once
-    std::vector<Layout> layouts;       // each struct, tuple, function, optional and array type once, and each environment
+    std::vector<Layout> layouts;       // each struct, enum, tuple, function, optional and array type once, and each environment
 };
 
 std::string type_name(const Program& program, Type type);

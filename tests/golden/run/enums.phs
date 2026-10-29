@@ -1,0 +1,71 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Enums in code generation, before `match`: a traffic light steps through
+// its cases, commands with payloads travel through arrays, structs and
+// optionals, and a tree holds its children in an array.
+
+enum Light { red, green, yellow }
+
+fun next(light: Light): Light {
+    if light == .red { return .green }
+    if light == .green { return .yellow }
+    return .red
+}
+
+fun name(light: Light): String {
+    if light == .red { return "red" }
+    if light == .green { return "green" }
+    return "yellow"
+}
+
+enum Command {
+    move(dx: Int, dy: Int)
+    say(String)
+    stop
+}
+
+struct Step(let command: Command, let light: Light)
+
+enum Tree {
+    leaf(Int)
+    node(kids: [Tree])
+}
+
+fun first(steps: [Step], light: Light): Light? {
+    for step in steps {
+        if step.light == light { return step.light }
+    }
+    return none
+}
+
+fun main(): Int {
+    var light = Light.red
+    for i in 0..<4 {
+        print(name(light))
+        light = next(light)
+    }
+    var steps = [Step(command: .say("go"), light: .green)]
+    steps.append(Step(command: .move(dx: 1, dy: 2), light: .yellow))
+    steps.append(Step(command: Command.stop, light: .red))
+    print(steps.count)
+    print(first(steps, .yellow) == .yellow)
+    print(first([], .red) == none)
+    let leaves = [Tree.leaf(1), Tree.leaf(2)]
+    let tree = Tree.node(kids: [Tree.node(kids: leaves), .leaf(3)])
+    let unused: Tree? = tree
+    print(unused != none)
+    return if light == .green { 0 } else { 1 }
+}

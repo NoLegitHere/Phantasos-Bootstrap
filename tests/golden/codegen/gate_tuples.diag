@@ -1,12 +1,9 @@
-gate_tuples.phs:19:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   19 | struct Looped(inner: ([Looped], Int))
-      |        ^^^^^^
-gate_tuples.phs:21:10: error[E0600]: stage0 code generation does not support values of type '(Float64, Int)' yet
-   21 | fun real(t: (Float64, Int)): Int = t.1
+gate_tuples.phs:19:10: error[E0600]: stage0 code generation does not support values of type '(Float64, Int)' yet
+   19 | fun real(t: (Float64, Int)): Int = t.1
       |          ^
-gate_tuples.phs:23:10: error[E0600]: stage0 code generation does not support values of type '(Unit, Int)' yet
-   23 | fun unit(t: ((), Int)): Int = t.1
+gate_tuples.phs:21:10: error[E0600]: stage0 code generation does not support values of type '(Unit, Int)' yet
+   21 | fun unit(t: ((), Int)): Int = t.1
       |          ^
-gate_tuples.phs:29:8: error[E0600]: stage0 code generation does not support comparisons of tuples yet
-   29 |     if t == (1, 2) { return 0 }
+gate_tuples.phs:27:8: error[E0600]: stage0 code generation does not support comparisons of tuples yet
+   27 |     if t == (1, 2) { return 0 }
       |        ^^^^^^^^^^^

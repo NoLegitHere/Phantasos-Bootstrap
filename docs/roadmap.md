@@ -100,7 +100,7 @@ foundation. Complete.
   - [x] Enum cases in `check`.
   - [x] `match` patterns in `check`, with payload bindings that borrow.
   - [x] Exhaustiveness checks, and enums that hold themselves.
-  - [ ] Enum values in code generation.
+  - [x] Enum values in code generation.
   - [ ] `match` in code generation.
   - [ ] Generic enums and enum methods.
   - [ ] Samples and run tests.

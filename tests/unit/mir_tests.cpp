@@ -872,6 +872,151 @@ void array_ownership() {
                  "}\n") == 62311);
 }
 
+void enums() {
+    // Enum values through locals, arrays, structs, tuples, optionals,
+    // generic calls and closures; equality compares cases.
+    CHECK(result(
+        "enum Dir { north, east, south, west }\n"
+        "enum Shape {\n"
+        "    circle(radius: Int)\n"
+        "    rect(w: Int, h: Int, label: String)\n"
+        "    dot\n"
+        "}\n"
+        "struct Mark(let dir: Dir, let shape: Shape)\n"
+        "fun turn(d: Dir): Dir {\n"
+        "    if d == .north { return .east }\n"
+        "    if d == .east { return .south }\n"
+        "    if d == .south { return .west }\n"
+        "    return .north\n"
+        "}\n"
+        "fun widest(n: Int): Shape = if n > 0 { .rect(w: n, h: 1, label: \"r\") } else { Shape.dot }\n"
+        "fun pick<T>(a: T, b: T, first: Bool): T = if first { a } else { b }\n"
+        "fun code(d: Dir): Int {\n"
+        "    if d == .north { return 1 }\n"
+        "    if d == .east { return 2 }\n"
+        "    if d == .south { return 3 }\n"
+        "    return 4\n"
+        "}\n"
+        "fun main(): Int {\n"
+        "    var d = Dir.north\n"
+        "    var trail: [Dir] = []\n"
+        "    for i in 0..<6 {\n"
+        "        trail.append(d)\n"
+        "        d = turn(d)\n"
+        "    }\n"
+        "    var marks = [Mark(dir: .west, shape: widest(3)), Mark(dir: d, shape: .circle(radius: 2))]\n"
+        "    marks.append(Mark(dir: pick(Dir.east, .south, false), shape: widest(0)))\n"
+        "    let maybe: Dir? = trail.removeLast()\n"
+        "    let none_dir: Dir? = none\n"
+        "    let pair = (Dir.south, widest(1))\n"
+        "    let f = { x: Dir -> turn(turn(x)) }\n"
+        "    var r = code(d) + code(trail[4]) * 10 + code(marks[2].dir) * 100 + code(f(pair.0)) * 1000\n"
+        "    if maybe == .east { r += 10000 }\n"
+        "    if none_dir == none { r += 20000 }\n"
+        "    if maybe != none_dir { r += 40000 }\n"
+        "    if marks[0].dir != .west { r += 1 }\n"
+        "    return r + marks.count * 100000\n"
+        "}\n") == 371313);
+    // Any optional enum compares with none.
+    CHECK(result(
+        "enum E { a(Int), b }\n"
+        "fun main(): Int {\n"
+        "    let x: E? = none\n"
+        "    let y: E? = .a(3)\n"
+        "    let z: E? ? = .b\n"
+        "    var r = 0\n"
+        "    if x == none { r += 1 }\n"
+        "    if y != none { r += 2 }\n"
+        "    if none != z { r += 4 }\n"
+        "    if x != none { r += 100 }\n"
+        "    return r\n"
+        "}\n") == 7);
+    // The tag grows with the number of cases.
+    std::string big = "enum Big {";
+    for (int i = 0; i < 300; ++i) big += std::format(" c{},", i);
+    big += " }\nfun main(): Int = if Big.c299 == .c299 && Big.c3 != .c4 { 1 } else { 0 }\n";
+    CHECK(result(big) == 1);
+    {
+        Frontend f;
+        CHECK(f.dump(big).contains("enum @Big { tag: u16 +0 } size 2 align 2"));
+    }
+    // A type that holds itself through an array clones through a function
+    // of its own, and the clone shares no elements with the original.
+    CHECK(result(
+        "struct Node(var kids: [Node], let v: Int)\n"
+        "fun main(): Int {\n"
+        "    var a = Node(kids: [], v: 1)\n"
+        "    a.kids.append(Node(kids: [Node(kids: [], v: 3)], v: 2))\n"
+        "    var b = a.clone()\n"
+        "    b.kids[0].kids.append(Node(kids: [], v: 4))\n"
+        "    b.kids.append(Node(kids: [], v: 5))\n"
+        "    return a.kids.count * 1000 + a.kids[0].kids.count * 100 + b.kids.count * 10 + b.kids[0].kids.count\n"
+        "}\n") == 1122);
+    {
+        Frontend f;
+        const auto dump = f.dump(
+            "enum Tree {\n"
+            "    leaf(Int)\n"
+            "    node(kids: [Tree])\n"
+            "}\n"
+            "fun main(): Int {\n"
+            "    let t = Tree.node(kids: [.leaf(1), .node(kids: [])])\n"
+            "    let u = t.clone()\n"
+            "    let us = [u]\n"
+            "    return us.count - 1\n"
+            "}\n");
+        CHECK(dump.contains("fun @$clone<Tree>(%0: @Tree) -> @Tree {"));
+        CHECK(dump.contains("case node("));
+        CHECK(Interpreter(*f.program).run().value == 0);
+    }
+    // Types that hold themselves through generic structs, tuples and
+    // optionals in arrays, whichever is lowered first.
+    CHECK(result(
+        "struct A<T>(var b: [B<T>], let v: T)\n"
+        "struct B<U>(var a: [A<U>])\n"
+        "fun main(): Int {\n"
+        "    var a = A<Int>(b: [], v: 2)\n"
+        "    let inner = A<Int>(b: [], v: 5)\n"
+        "    a.b.append(B(a: [inner]))\n"
+        "    return a.v + a.b[0].a[0].v - 7\n"
+        "}\n") == 0);
+    CHECK(result(
+        "struct S(var x: [(S, Int)], let n: Int)\n"
+        "struct Q(var x: [Q?], let n: Int)\n"
+        "fun main(): Int {\n"
+        "    let t: (S, Int) = (S(x: [], n: 1), 2)\n"
+        "    var s = S(x: [t], n: 3)\n"
+        "    let o: Q? = Q(x: [], n: 4)\n"
+        "    let q = Q(x: [o, none], n: 5)\n"
+        "    return s.x[0].0.n + q.x.count + q.n - 8\n"
+        "}\n") == 0);
+    // Payloads are lifted to optional fields, and a closure that clones a
+    // capture through a clone function keeps its own function.
+    CHECK(result(
+        "enum E {\n"
+        "    a(Int?)\n"
+        "    b(x: Int? ?, y: Bool)\n"
+        "}\n"
+        "struct Node(var kids: [Node], let v: Int)\n"
+        "fun keep<T>(xs: [T]): [fun() -> T] {\n"
+        "    var out: [fun() -> T] = []\n"
+        "    for x in xs { out.append({ -> x }) }\n"
+        "    return out\n"
+        "}\n"
+        "fun main(): Int {\n"
+        "    let e = E.a(3)\n"
+        "    let f: E? = .b(x: 4, y: true)\n"
+        "    var g = [Node(kids: [Node(kids: [], v: 2)], v: 1)]\n"
+        "    let fs = keep(g)\n"
+        "    g[0].kids.append(Node(kids: [], v: 3))\n"
+        "    let n = fs[0]()\n"
+        "    let es = [e, E.a(none)]\n"
+        "    var r = n.kids.count * 10 + g[0].kids.count + es.count - 14\n"
+        "    if f == none { r += 100 }\n"
+        "    return r\n"
+        "}\n") == 0);
+}
+
 int main() {
     target_program();
     control_flow();
@@ -891,6 +1036,7 @@ int main() {
     arrays();
     growth_and_loops();
     array_ownership();
+    enums();
     rejected_files();
     long_trees();
     std::println("mir tests passed");

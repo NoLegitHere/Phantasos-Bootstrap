@@ -1,0 +1,41 @@
+enum @Color { tag: u8 +0 } size 1 align 1
+
+enum @Tok { tag: u8 +0, num.0: i64 +8, pair.b: bool +8, pair.a: i8 +9, word.0: string +8 } size 24 align 8
+
+optional @Tok? { some: bool +24, value: @Tok +0 } size 32 align 8
+
+fun @same(%0: @Color, %1: @Color) -> bool {
+bb0:
+    %3: u8 = field %0, tag
+    %4: u8 = field %1, tag
+    %2: bool = eq %3, %4
+    ret %2
+}
+
+fun @main() -> i64 entry {
+bb0:
+    %0: i8 = const 1
+    %1: bool = const true
+    %2: @Tok = case pair(%1, %0)
+    %3: @Tok = copy %2
+    %4: string = str "hi"
+    %5: @Tok = case word(%4)
+    %6: @Tok = copy %5
+    %7: i64 = const 4
+    %8: @Tok = case num(%7)
+    %9: @Tok = copy %8
+    %10: @Tok = case plus
+    %17: bool = const true
+    %18: @Tok? = make %17, %10
+    %11: @Tok? = copy %18
+    %12: @Color = case red
+    %13: @Color = case green
+    %14: bool = call @same(%12, %13)
+    condbr %14, bb1, bb2
+bb1:
+    %15: i64 = const 1
+    ret %15
+bb2:
+    %16: i64 = const 0
+    ret %16
+}

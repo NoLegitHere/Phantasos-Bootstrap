@@ -1,33 +1,27 @@
 gate_structs.phs:20:8: error[E0600]: stage0 code generation does not support structs without fields yet
    20 | struct Empty()
       |        ^^^^^
-gate_structs.phs:22:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   22 | struct Node(value: Int, next: [Link])
-      |        ^^^^
-gate_structs.phs:23:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   23 | struct Link(node: Node)
-      |        ^^^^
-gate_structs.phs:25:27: error[E0600]: stage0 code generation does not support parameter defaults yet
-   25 | struct Defaulted(x: Int = 1)
+gate_structs.phs:22:27: error[E0600]: stage0 code generation does not support parameter defaults yet
+   22 | struct Defaulted(x: Int = 1)
       |                           ^
-gate_structs.phs:27:16: error[E0600]: stage0 code generation does not support values of type 'Float64' yet
-   27 | struct Real(x: Float64)
+gate_structs.phs:24:16: error[E0600]: stage0 code generation does not support values of type 'Float64' yet
+   24 | struct Real(x: Float64)
       |                ^^^^^^^
-gate_structs.phs:29:19: error[E0600]: stage0 code generation does not support fields of type 'Unit' yet
-   29 | struct Nothing(x: ())
+gate_structs.phs:26:19: error[E0600]: stage0 code generation does not support fields of type 'Unit' yet
+   26 | struct Nothing(x: ())
       |                   ^^
-gate_structs.phs:31:21: error[E0600]: stage0 code generation does not support values of type 'Real' yet
-   31 | struct Holder(real: Real)
+gate_structs.phs:28:21: error[E0600]: stage0 code generation does not support values of type 'Real' yet
+   28 | struct Holder(real: Real)
       |                     ^^^^
-gate_structs.phs:34:9: error[E0600]: stage0 code generation does not support fields declared in a struct body yet
-   34 |     var extra: Int = 0
+gate_structs.phs:31:9: error[E0600]: stage0 code generation does not support fields declared in a struct body yet
+   31 |     var extra: Int = 0
       |         ^^^^^
-gate_structs.phs:35:16: error[E0600]: stage0 code generation does not support static methods yet
-   35 |     static fun zero(): Int = 0
+gate_structs.phs:32:16: error[E0600]: stage0 code generation does not support static methods yet
+   32 |     static fun zero(): Int = 0
       |                ^^^^
-gate_structs.phs:42:9: error[E0600]: stage0 code generation does not support values of type 'Holder' yet
-   42 |     let h = Holder(real: Real(x: 1.0))
+gate_structs.phs:39:9: error[E0600]: stage0 code generation does not support values of type 'Holder' yet
+   39 |     let h = Holder(real: Real(x: 1.0))
       |         ^
-gate_structs.phs:43:18: error[E0600]: stage0 code generation does not support values of type 'Counter' yet
-   43 |     return p.x + Counter(count: 1).count
+gate_structs.phs:40:18: error[E0600]: stage0 code generation does not support values of type 'Counter' yet
+   40 |     return p.x + Counter(count: 1).count
       |                  ^^^^^^^^^^^^^^^^^

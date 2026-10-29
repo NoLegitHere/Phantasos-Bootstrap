@@ -1,12 +1,9 @@
-gate_function_values.phs:30:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   30 | struct Holder(f: fun(Holder) -> Int)
-      |        ^^^^^^
-gate_function_values.phs:32:14: error[E0600]: stage0 code generation does not support values of type 'fun(Int) -> Unit?' yet
-   32 | fun optional(f: fun(Int) -> Unit?) {}
+gate_function_values.phs:30:14: error[E0600]: stage0 code generation does not support values of type 'fun(Int) -> Unit?' yet
+   30 | fun optional(f: fun(Int) -> Unit?) {}
       |              ^
-gate_function_values.phs:34:24: error[E0600]: stage0 code generation does not support operators on function values yet
-   34 | fun compared(): Bool = one == one
+gate_function_values.phs:32:24: error[E0600]: stage0 code generation does not support operators on function values yet
+   32 | fun compared(): Bool = one == one
       |                        ^^^^^^^^^^
-gate_function_values.phs:36:20: error[E0600]: stage0 code generation does not support values of type 'fun(Unit) -> Int' yet
-   36 | fun unit_parameter(f: fun(()) -> Int) {}
+gate_function_values.phs:34:20: error[E0600]: stage0 code generation does not support values of type 'fun(Unit) -> Int' yet
+   34 | fun unit_parameter(f: fun(()) -> Int) {}
       |                    ^

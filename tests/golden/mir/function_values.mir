@@ -1,6 +1,6 @@
-function @fun(Int, Int) -> Int { code: u64 +0, env: u64 +8 } size 16 align 8 signature (i64, i64) -> i64
-
 struct @Op { f: @fun(Int, Int) -> Int +0, name: string +16 } size 32 align 8
+
+function @fun(Int, Int) -> Int { code: u64 +0, env: u64 +8 } size 16 align 8 signature (i64, i64) -> i64
 
 function @fun(Int) -> Int { code: u64 +0, env: u64 +8 } size 16 align 8 signature (i64) -> i64
 

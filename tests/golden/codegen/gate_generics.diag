@@ -1,21 +1,24 @@
-gate_generics.phs:31:8: error[E0600]: stage0 code generation does not support recursive structs yet
-   31 | struct Looped<T>(inner: Box<[Looped<T>]>)
-      |        ^^^^^^
-gate_generics.phs:35:9: error[E0600]: stage0 code generation does not support values of type 'Box<Unit>' yet
-   35 |     let unit = Box(value: ())
+gate_generics.phs:32:8: error[E0600]: stage0 code generation does not support generic structs that hold themselves with bigger type arguments yet
+   32 | struct Grows<T>(inner: Box<[Shrinks<(T, Int)>]>)
+      |        ^^^^^
+gate_generics.phs:33:26: error[E0600]: stage0 code generation does not support values of type '[Grows<T>]' yet
+   33 | struct Shrinks<T>(outer: [Grows<T>])
+      |                          ^^^^^^^^^^
+gate_generics.phs:37:9: error[E0600]: stage0 code generation does not support values of type 'Box<Unit>' yet
+   37 |     let unit = Box(value: ())
       |         ^^^^
-gate_generics.phs:44:5: error[E0600]: stage0 code generation does not support values of type 'Float64' yet
-   44 |     identity(1.5)
+gate_generics.phs:46:5: error[E0600]: stage0 code generation does not support values of type 'Float64' yet
+   46 |     identity(1.5)
       |     ^^^^^^^^^^^^^
-gate_generics.phs:46:5: error[E0600]: stage0 code generation does not support type arguments of type 'Unit' yet
-   46 |     identity(())
+gate_generics.phs:48:5: error[E0600]: stage0 code generation does not support type arguments of type 'Unit' yet
+   48 |     identity(())
       |     ^^^^^^^^
-gate_generics.phs:47:5: error[E0600]: stage0 code generation does not support type arguments of type 'Never' yet
-   47 |     identity<Never>(stop())
+gate_generics.phs:49:5: error[E0600]: stage0 code generation does not support type arguments of type 'Never' yet
+   49 |     identity<Never>(stop())
       |     ^^^^^^^^^^^^^^^
-gate_generics.phs:53:9: error[E0600]: stage0 code generation does not support values of type 'fun(Float64) -> Float64' yet
-   53 |     let h: fun(Float64) -> Float64 = identity
+gate_generics.phs:55:9: error[E0600]: stage0 code generation does not support values of type 'fun(Float64) -> Float64' yet
+   55 |     let h: fun(Float64) -> Float64 = identity
       |         ^
-gate_generics.phs:54:9: error[E0600]: stage0 code generation does not support values of type 'fun(Unit) -> Unit' yet
-   54 |     let u = identity<Unit>
+gate_generics.phs:56:9: error[E0600]: stage0 code generation does not support values of type 'fun(Unit) -> Unit' yet
+   56 |     let u = identity<Unit>
       |         ^

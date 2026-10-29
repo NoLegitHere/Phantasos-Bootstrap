@@ -1,8 +1,8 @@
 struct @Box<Int> { value: i64 +0 } size 8 align 8
 
-tuple @(Int, Bool) { 0: i64 +0, 1: bool +8 } size 16 align 8
-
 struct @Box<(Int, Bool)> { value: @(Int, Bool) +0 } size 16 align 8
+
+tuple @(Int, Bool) { 0: i64 +0, 1: bool +8 } size 16 align 8
 
 tuple @(Int, Int) { 0: i64 +0, 1: i64 +8 } size 16 align 8
 

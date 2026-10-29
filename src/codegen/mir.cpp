@@ -70,7 +70,42 @@ u32 align_of(const Program& program, Type type) {
 
 u32 words(const Program& program, Type type) { return (size_of(program, type) + 7) / 8; }
 
+namespace {
+// Places fields [first, last) by decreasing alignment from offset start, and
+// returns where they end.
+u32 place_range(const Program& program, Layout& layout, usize first, usize last, u32 start) {
+    std::vector<usize> order(last - first);
+    std::iota(order.begin(), order.end(), first);
+    std::ranges::stable_sort(order, [&](usize a, usize b) {
+        return align_of(program, layout.fields[a]) > align_of(program, layout.fields[b]);
+    });
+    u32 at = start;
+    for (const usize field : order) {
+        const u32 align = align_of(program, layout.fields[field]);
+        at = (at + align - 1) / align * align;
+        layout.offsets[field] = at;
+        at += size_of(program, layout.fields[field]);
+        layout.align = std::max(layout.align, align);
+    }
+    return at;
+}
+}  // namespace
+
 void place_fields(const Program& program, Layout& layout) {
+    if (layout.kind == Layout::Enum) {
+        layout.offsets.assign(layout.fields.size(), 0);
+        layout.align = align_of(program, layout.fields.front());
+        u32 payload = 1;
+        for (usize i = 1; i < layout.fields.size(); ++i) payload = std::max(payload, align_of(program, layout.fields[i]));
+        const u32 start = (size_of(program, layout.fields.front()) + payload - 1) / payload * payload;
+        u32 end = size_of(program, layout.fields.front());
+        for (usize c = 0; c < layout.payloads.size(); ++c) {
+            const usize last = c + 1 < layout.payloads.size() ? layout.payloads[c + 1] : layout.fields.size();
+            if (layout.payloads[c] < last) end = std::max(end, place_range(program, layout, layout.payloads[c], last, start));
+        }
+        layout.size = (end + layout.align - 1) / layout.align * layout.align;
+        return;
+    }
     std::vector<usize> order(layout.fields.size());
     std::iota(order.begin(), order.end(), usize{0});
     std::ranges::stable_sort(order, [&](usize a, usize b) {
@@ -123,6 +158,7 @@ std::string_view op_name(Op op) {
         case Op::Call: return "call";
         case Op::Print: return "print";
         case Op::Make: return "make";
+        case Op::Case: return "case";
         case Op::Field: return "field";
         case Op::With: return "with";
         case Op::FnRef: return "fnref";
@@ -165,7 +201,7 @@ std::string literal(std::string_view bytes) {
 std::string dump(const Program& program) {
     std::string out;
     for (const auto& layout : program.layouts) {
-        constexpr std::string_view kinds[] = {"struct", "tuple", "function", "environment", "optional", "array"};
+        constexpr std::string_view kinds[] = {"struct", "tuple", "function", "environment", "optional", "array", "enum"};
         out += std::format("{} @{} {{", kinds[layout.kind], layout.name);
         for (usize i = 0; i < layout.fields.size(); ++i)
             out += std::format("{} {}: {} +{}", i ? "," : "", layout.names[i], type_name(program, layout.fields[i]),
@@ -223,6 +259,12 @@ std::string dump(const Program& program) {
                     case Op::Make: case Op::Array:
                         for (usize a = 0; a < inst.args.size(); ++a) out += (a ? ", " : " ") + reg(inst.args[a]);
                         break;
+                    case Op::Case: {
+                        out += ' ' + program.layouts[layout_index(fun.regs[inst.dst.id])].cases[inst.imm];
+                        for (usize a = 0; a < inst.args.size(); ++a) out += (a ? ", " : "(") + reg(inst.args[a]);
+                        if (!inst.args.empty()) out += ')';
+                        break;
+                    }
                     case Op::Field: {
                         const auto& layout = program.layouts[layout_index(fun.regs[inst.a.id])];
                         out += std::format(" {}, {}", reg(inst.a), layout.names[inst.imm]);

@@ -3737,10 +3737,10 @@ private:
             diag_.error(DiagCode::RangeOutsideFor, expr.span, "a range can only be the subject of a 'for' loop");
             return {Type::Error};
         }
-        if (equality && (lhs.type.optional_depth || rhs.type.optional_depth || none_literal(expr.lhs) || none_literal(expr.rhs)))
-            return optional_equality(expr, lhs, rhs);
         if (equality)
             if (const auto compared = case_equality(expr, lhs, rhs)) return *compared;
+        if (equality && (lhs.type.optional_depth || rhs.type.optional_depth || none_literal(expr.lhs) || none_literal(expr.rhs)))
+            return optional_equality(expr, lhs, rhs);
         if (tuples || (equality && (lhs.type.optional_depth || rhs.type.optional_depth || lhs.type.kind >= Type::Nominal ||
                                     rhs.type.kind >= Type::Nominal || lhs.literal == Literal::Array || rhs.literal == Literal::Array))) return {};
         const bool ints = ranges || expr.op == BinOp::Rem || expr.op == BinOp::WrapAdd || expr.op == BinOp::WrapSub ||
@@ -3785,15 +3785,20 @@ private:
     // `==` and `!=` with an enum: the other side, which may be `.case`, takes
     // the enum's type. Only enums without payloads compare so far (3.34);
     // others are deferred like composite equality.
+    // An enum, or an optional of one, compared with a value of its type,
+    // `.case` or `none`; with an optional on both sides, the deeper one's.
     std::optional<Value> case_equality(const BinaryExpr& expr, Value lhs, Value rhs) {
-        const auto plain = [&](Value v) { return known(v.type) && !v.type.optional_depth && enum_of(v.type).valid(); };
+        const auto plain = [&](Value v) { return known(v.type) && enum_of(v.type.scalar()).valid(); };
         if (!plain(lhs) && !plain(rhs)) return std::nullopt;
-        const Type type = plain(lhs) ? lhs.type : rhs.type;
-        const Expr* other = plain(lhs) ? expr.rhs : expr.lhs;
+        const bool left = plain(lhs) && (!plain(rhs) || lhs.type.optional_depth >= rhs.type.optional_depth);
+        const Type type = left ? lhs.type : rhs.type;
+        const Expr* other = left ? expr.rhs : expr.lhs;
         const auto checked = require(other, type, other->span);
         if (checked.type == Type::Error) return Value{Type::Error};
+        // Any optional enum compares with `none`, which tests only for a value.
+        if (none_literal(other)) return Value{Type::Bool};
         if (unavailable(checked)) return Value{};
-        const auto members = resolution_.binding(enum_of(type)).members;
+        const auto members = resolution_.binding(enum_of(type.scalar())).members;
         if (members.valid() && std::ranges::any_of(resolution_.scopes()[members.value].bindings, [&](BindingId id) {
                 return resolution_.binding(id).kind == BindingKind::EnumCase && carries_payload(id);
             })) return Value{};
@@ -4236,9 +4241,9 @@ private:
         return chained_result({result});
     }
     enum class Expansion : u8 { Yes, No, Deferred, Failed };
-    // Strings, Copy scalars, function values and payload-free enums clone, as
-    // do optionals, tuples, arrays and non-generic structs made of clonable
-    // parts. Generic parameters, classes and other references do not yet.
+    // Strings, Copy scalars and function values clone, as do optionals,
+    // tuples, arrays, non-generic structs and non-generic enums made of
+    // clonable parts. Generic parameters, classes and other references do not yet.
     Expansion clonable(Type root, Type& blocker) {
         std::vector<Type> work{root};
         FlatSet<usize> seen;
@@ -4260,9 +4265,12 @@ private:
                     if (!seen.insert(type.detail)) break;
                     const auto& binding = resolution_.binding(descriptor->declaration);
                     const auto* decl = binding.item ? as_type_decl(binding.item) : nullptr;
-                    if (decl && decl->kind == ItemKind::Enum &&
-                        std::ranges::all_of(decl->members, [](const Item* m) { const auto* c = as<EnumCaseItem>(m); return !c || c->fields.empty(); }))
+                    if (decl && decl->kind == ItemKind::Enum && descriptor->arguments.empty() && binding.members.valid()) {
+                        for (const BindingId id : resolution_.scopes()[binding.members.value].bindings)
+                            if (resolution_.binding(id).kind == BindingKind::EnumCase)
+                                for (const auto field : signatures_.at(id.value).parameters) work.push_back(field);
                         break;
+                    }
                     if (!decl || decl->kind != ItemKind::Struct || !descriptor->arguments.empty() || !binding.members.valid()) {
                         blocker = type;
                         return Expansion::No;

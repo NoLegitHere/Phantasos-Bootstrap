@@ -175,6 +175,7 @@ public:
                 closure_function(pending);
             }
         }
+        place_layouts();
         for (auto& fun : program_.functions) lift(fun);
         return std::move(program_);
     }
@@ -254,13 +255,101 @@ private:
         if (type.kind == ScalarType::Function) return function_type(type);
         if (type.kind == ScalarType::Array) return array(type);
         if (type.kind != ScalarType::Nominal) return scalar_type(type);
+        if (resolution_.binding(types_.descriptor(type)->declaration).item->kind == ItemKind::Enum) return enumeration(type);
         return structure(type);
+    }
+
+    // Places the fields of every layout after those of the layouts it holds
+    // inline, without recursion. Those never form a cycle (E0442), and an
+    // array or function value holds only words.
+    void place_layouts() {
+        std::vector<u8> state(program_.layouts.size());  // 0 new, 1 waiting for its fields, 2 placed
+        for (u32 root = 0; root < state.size(); ++root) {
+            std::vector<u32> work{root};
+            while (!work.empty()) {
+                const u32 at = work.back();
+                if (state[at] == 2) {
+                    work.pop_back();
+                } else if (state[at] == 0) {
+                    state[at] = 1;
+                    for (const Type field : program_.layouts[at].fields)
+                        if (is_aggregate(field) && state[layout_index(field)] == 0) work.push_back(layout_index(field));
+                } else {
+                    place_fields(program_, program_.layouts[at]);
+                    state[at] = 2;
+                    work.pop_back();
+                }
+            }
+        }
+    }
+
+    // A layout's index, claimed before its parts are lowered, so that a
+    // type can hold itself through an array or a function type, whichever
+    // of the types on the way is lowered first; the checker rejects holding
+    // itself inline (E0442).
+    template <typename Key>
+    u32 claim(std::unordered_map<Key, u32>& cache, std::type_identity_t<Key> detail) {
+        const auto index = static_cast<u32>(program_.layouts.size());
+        program_.layouts.emplace_back();
+        cache.emplace(detail, index);
+        return index;
+    }
+
+    // An enum's layout, built once per type: its tag, the smallest unsigned
+    // type that counts its cases, and each case's payload fields.
+    Type enumeration(ScalarType type) {
+        PHS_ASSERT(type.optional_depth == 0);
+        if (const auto it = layouts_.find(type.detail); it != layouts_.end()) return aggregate(it->second);
+        const BindingId declaration = types_.descriptor(type)->declaration;
+        const u32 index = claim(layouts_, type.detail);
+        Layout layout;
+        layout.name = std::string(names_.str(resolution_.binding(declaration).name.sym));
+        layout.kind = Layout::Enum;
+        std::vector<BindingId> cases;
+        for (const BindingId member : resolution_.scopes()[resolution_.binding(declaration).members.value].bindings)
+            if (resolution_.binding(member).kind == BindingKind::EnumCase) cases.push_back(member);
+        layout.fields = {cases.size() <= 0x100 ? Type::U8 : cases.size() <= 0x10000 ? Type::U16 : Type::U32};
+        layout.names = {"tag"};
+        for (usize c = 0; c < cases.size(); ++c) {
+            const auto& binding = resolution_.binding(cases[c]);
+            const std::string name(names_.str(binding.name.sym));
+            cases_.emplace(cases[c].value, static_cast<u32>(c));
+            layout.cases.push_back(name);
+            layout.payloads.push_back(static_cast<u32>(layout.fields.size()));
+            const auto parameters = types_.signature(cases[c])->parameters;  // a copy, since lowering can intern types
+            const auto& fields = cast<EnumCaseItem>(binding.item)->fields;
+            for (usize f = 0; f < parameters.size(); ++f) {
+                layout.fields.push_back(lower_type(parameters[f]));
+                const bool labeled = f < fields.size() && !fields[f].label.sym.empty();
+                layout.names.push_back(name + '.' + (labeled ? std::string(names_.str(fields[f].label.sym)) : std::to_string(f)));
+            }
+        }
+        program_.layouts[index] = std::move(layout);
+        return aggregate(index);
+    }
+    bool is_enum(Type type) const {
+        return is_aggregate(type) && program_.layouts[layout_index(type)].kind == Layout::Enum;
+    }
+    // The case a member expression such as `Tok.plus` or `.plus` names, if any.
+    BindingId case_value(const Expr* expr) const {
+        if (expr->kind != ExprKind::Member && expr->kind != ExprKind::ImplicitMember) return {};
+        const auto* record = types_.member(expr);
+        if (!record || record->state != ResolutionState::Resolved || record->candidates.size() != 1) return {};
+        const BindingId id = record->candidates.front();
+        return resolution_.binding(id).kind == BindingKind::EnumCase ? id : BindingId{};
+    }
+    // The value of a case, from its payload fields in declaration order.
+    Reg enum_case(ScalarType enum_type, BindingId id, std::vector<Reg> fields) {
+        const Reg dst = reg(lower_type(enum_type));
+        emit({.op = Op::Case, .dst = dst, .imm = cases_.at(id.value), .args = std::move(fields)});
+        return dst;
     }
 
     // A tuple type's layout, built once per type; its fields are the elements.
     Type tuple(ScalarType type) {
         PHS_ASSERT(type.optional_depth == 0);
         if (const auto it = tuples_.find(type.detail); it != tuples_.end()) return aggregate(it->second);
+        const u32 index = claim(tuples_, type.detail);
         Layout layout;
         layout.name = types_.type_name(type, resolution_, names_);
         layout.kind = Layout::Tuple;
@@ -269,26 +358,21 @@ private:
             layout.fields.push_back(lower_type(elements[i]));
             layout.names.push_back(std::to_string(i));
         }
-        place_fields(program_, layout);
-        const auto index = static_cast<u32>(program_.layouts.size());
-        program_.layouts.push_back(std::move(layout));
-        tuples_.emplace(type.detail, index);
+        program_.layouts[index] = std::move(layout);
         return aggregate(index);
     }
 
     // An optional's layout, built once per value type: its tag and its value.
     Type optional(Type value) {
         if (const auto it = optionals_.find(static_cast<u32>(value)); it != optionals_.end()) return aggregate(it->second);
+        const u32 index = claim(optionals_, static_cast<u32>(value));
         Layout layout;
         layout.name = type_name(program_, value) + "?";
         if (layout.name.front() == '@') layout.name.erase(0, 1);
         layout.kind = Layout::Optional;
         layout.fields = {Type::Bool, value};
         layout.names = {"some", "value"};
-        place_fields(program_, layout);
-        const auto index = static_cast<u32>(program_.layouts.size());
-        program_.layouts.push_back(std::move(layout));
-        optionals_.emplace(static_cast<u32>(value), index);
+        program_.layouts[index] = std::move(layout);
         return aggregate(index);
     }
     bool is_optional(Type type) const {
@@ -301,16 +385,14 @@ private:
         PHS_ASSERT(type.optional_depth == 0);
         if (const auto it = arrays_.find(type.detail); it != arrays_.end()) return aggregate(it->second);
         const ScalarType element = types_.descriptor(type)->element;  // copied, like function_type's descriptor
+        const u32 index = claim(arrays_, type.detail);
         Layout layout;
         layout.name = types_.type_name(type, resolution_, names_);
         layout.kind = Layout::Array;
         layout.fields = {Type::U64, Type::I64, Type::I64};
         layout.names = {"data", "count", "capacity"};
         layout.element = lower_type(element);
-        place_fields(program_, layout);
-        const auto index = static_cast<u32>(program_.layouts.size());
-        program_.layouts.push_back(std::move(layout));
-        arrays_.emplace(type.detail, index);
+        program_.layouts[index] = std::move(layout);
         return aggregate(index);
     }
 
@@ -321,6 +403,7 @@ private:
         if (const auto it = function_types_.find(type.detail); it != function_types_.end()) return aggregate(it->second);
         // Copied, since building the layouts of its parts can intern types.
         const auto descriptor = *types_.descriptor(type);
+        const u32 index = claim(function_types_, type.detail);
         Layout layout;
         layout.name = types_.type_name(type, resolution_, names_);
         layout.kind = Layout::Function;
@@ -328,15 +411,12 @@ private:
         layout.names = {"code", "env"};
         for (const ScalarType param : descriptor.parameters) layout.params.push_back(lower_type(param));
         layout.result = lower_type(descriptor.result);
-        place_fields(program_, layout);
-        const auto index = static_cast<u32>(program_.layouts.size());
-        program_.layouts.push_back(std::move(layout));
-        function_types_.emplace(type.detail, index);
+        program_.layouts[index] = std::move(layout);
         return aggregate(index);
     }
 
-    // A struct's layout, built once per instance; the gate rejects recursive
-    // structs. A generic struct's fields take its instance's type arguments.
+    // A struct's layout, built once per instance. A generic struct's fields
+    // take its instance's type arguments.
     Type structure(ScalarType type) {
         PHS_ASSERT(type.optional_depth == 0);
         if (const auto it = layouts_.find(type.detail); it != layouts_.end()) return aggregate(it->second);
@@ -345,6 +425,7 @@ private:
         std::vector<ScalarTypes::TypeArgument> arguments;
         for (usize i = 0; i < item.generics.size(); ++i)
             arguments.emplace_back(values_.at(item.generics[i].name.span.lo), descriptor.arguments[i]);
+        const u32 index = claim(layouts_, type.detail);
         Layout layout;
         layout.name = arguments.empty() ? std::string(names_.str(item.name.sym)) : types_.type_name(type, resolution_, names_);
         for (usize i = 0; i < item.ctor_params.size(); ++i) {
@@ -353,10 +434,7 @@ private:
             layout.names.emplace_back(names_.str(param.name.sym));
             fields_.emplace(param.name.span.lo, static_cast<u32>(i));
         }
-        place_fields(program_, layout);
-        const auto index = static_cast<u32>(program_.layouts.size());
-        program_.layouts.push_back(std::move(layout));
-        layouts_.emplace(type.detail, index);
+        program_.layouts[index] = std::move(layout);
         return aggregate(index);
     }
     // The declaration index of the field a member expression reads.
@@ -1148,8 +1226,20 @@ private:
                     }
                     break;
                 }
+                case ExprKind::ImplicitMember: {
+                    // `.plus`: only cases reach code generation.
+                    tasks.pop_back();
+                    values.push_back(enum_case(scalar(expr), case_value(expr), {}));
+                    break;
+                }
                 case ExprKind::Member: {
                     const auto& member = *cast<MemberExpr>(expr);
+                    if (const BindingId id = case_value(expr); id.valid()) {
+                        // `Tok.plus` names its enum, which has no value.
+                        tasks.pop_back();
+                        values.push_back(enum_case(scalar(expr), id, {}));
+                        break;
+                    }
                     if (stage == 0) {
                         tasks.push_back({member.base});
                         break;
@@ -1348,7 +1438,9 @@ private:
     // A closure value: its function, named after the function that creates it,
     // and a new environment holding a copy of each captured value.
     Reg make_closure(const ClosureExpr& closure) {
-        PendingClosure pending{&closure, static_cast<u32>(program_.functions.size()), {}, {}, self_type_, env_};
+        // The closure's function is numbered once its captures are in place,
+        // since cloning one can add a clone function first.
+        PendingClosure pending{&closure, 0, {}, {}, self_type_, env_};
         Layout layout;
         std::vector<Reg> captured;
         for (const auto& capture : resolution_.captures(&closure)) {
@@ -1367,6 +1459,7 @@ private:
             captured.push_back(self_);
         }
         const auto creator = static_cast<usize>(fun_ - program_.functions.data());
+        pending.function = static_cast<u32>(program_.functions.size());
         auto& out = program_.functions.emplace_back();
         fun_ = &program_.functions[creator];
         out.name = std::format("{}$closure{}", fun_->name, closure_counts_[creator]++);
@@ -1374,7 +1467,6 @@ private:
         if (!layout.fields.empty()) {
             layout.name = out.name;
             layout.kind = Layout::Environment;
-            place_fields(program_, layout);
             out.environment = static_cast<u32>(program_.layouts.size());
             program_.layouts.push_back(std::move(layout));
         }
@@ -1574,7 +1666,8 @@ private:
     }
 
     // `==` and `!=` with an optional compare both sides as the deeper
-    // optional: tags first, then values, which `none` keeps zero.
+    // optional: tags first, then values, which `none` keeps zero. Enums
+    // compare their tags.
     Reg optional_equality(const BinaryExpr& binary, Reg lhs, Reg rhs) {
         const ScalarType left = scalar(binary.lhs), right = scalar(binary.rhs);
         const Type type = lower_type(left.optional_depth >= right.optional_depth ? left : right);
@@ -1588,6 +1681,15 @@ private:
     }
     Reg equality(Reg lhs, Reg rhs, Type type) {
         const Reg dst = reg(Type::Bool);
+        if (is_enum(type)) {
+            // Only enums without payloads compare (3.34), by their tags.
+            const Type tag = program_.layouts[layout_index(type)].fields.front();
+            const Reg a = reg(tag), b = reg(tag);
+            emit({.op = Op::Field, .dst = a, .a = lhs, .imm = 0});
+            emit({.op = Op::Field, .dst = b, .a = rhs, .imm = 0});
+            emit({.op = Op::Eq, .dst = dst, .a = a, .b = b});
+            return dst;
+        }
         if (!is_optional(type)) {
             emit({.op = Op::Eq, .dst = dst, .a = lhs, .b = rhs});
             return dst;
@@ -1620,7 +1722,7 @@ private:
             return {};
         }
         if ((binary.op == BinOp::Eq || binary.op == BinOp::Ne) &&
-            (scalar(binary.lhs).optional_depth || scalar(binary.rhs).optional_depth))
+            (scalar(binary.lhs).optional_depth || scalar(binary.rhs).optional_depth || is_enum(fun_->regs[lhs.id])))
             return optional_equality(binary, lhs, rhs);
         const Reg dst = reg(type);
         emit({.op = binary_op(binary.op), .dst = dst, .a = lhs, .b = rhs});
@@ -1647,6 +1749,14 @@ private:
         }
         if (checked.kind == CallKind::Array) return array_call(call, args);
         if (checked.kind == CallKind::Clone) return args.front().valid() ? cloned(args.front()) : Reg{};
+        if (checked.kind == CallKind::EnumCase) {
+            // A diverging argument has already ended the block.
+            for (const Reg arg : args)
+                if (!arg.valid()) return {};
+            std::vector<Reg> fields(args.size());
+            for (usize i = 0; i < args.size(); ++i) fields[checked.parameters[i]] = args[i];
+            return enum_case(scalar(&call), checked.target, std::move(fields));
+        }
         if (checked.kind == CallKind::NominalConstructor) {
             // A diverging argument has already ended the block.
             for (const Reg arg : args)
@@ -1712,13 +1822,57 @@ private:
 
     // A copy of value that shares no elements with it (3.31): an array gets
     // new memory holding a clone of each element, and a struct, tuple or
-    // optional that holds an array is rebuilt from clones of its fields.
-    // Everything else is copied as it is.
+    // optional that holds an array is rebuilt from clones of its fields, an
+    // enum from clones of its case's payload. Everything else is copied as it
+    // is. The copy is built in place, except that a type which holds itself,
+    // through an array, is cloned by a call to its clone function.
     Reg cloned(Reg value) {
         const Type type = fun_->regs[value.id];
         if (!owns(type)) return value;
+        if (std::ranges::contains(cloning_, layout_index(type))) {
+            const Reg copy = reg(type);
+            emit({.op = Op::Call, .dst = copy, .callee = clone_function(type), .args = {value}});
+            return copy;
+        }
+        cloning_.push_back(layout_index(type));
+        const Reg copy = clone_fields(value);
+        cloning_.pop_back();
+        return copy;
+    }
+    Reg clone_fields(Reg value) {
+        const Type type = fun_->regs[value.id];
         const Layout layout = program_.layouts[layout_index(type)];  // a copy; blocks below add registers
-        const Reg copy = reg(type);
+        const Reg result = reg(type);
+        if (layout.kind == Layout::Enum) {
+            // Only cases whose payload holds an array are rebuilt.
+            const Reg tag = reg(layout.fields[0]);
+            emit({.op = Op::Field, .dst = tag, .a = value, .imm = 0});
+            copy(result, value);
+            const u32 exit = block();
+            for (u32 c = 0; c < layout.cases.size(); ++c) {
+                const u32 first = layout.payloads[c];
+                const u32 last = c + 1 < layout.cases.size() ? layout.payloads[c + 1] : static_cast<u32>(layout.fields.size());
+                if (!std::ranges::any_of(std::span(layout.fields).subspan(first, last - first), [&](Type field) { return owns(field); }))
+                    continue;
+                const Reg is = reg(Type::Bool);
+                emit({.op = Op::Eq, .dst = is, .a = tag, .b = constant(layout.fields[0], c)});
+                const u32 rebuild = block(), next = block();
+                end(Term::CondBr, is, rebuild, next);
+                current_ = rebuild;
+                std::vector<Reg> fields;
+                for (u32 i = first; i < last; ++i) {
+                    const Reg field = reg(layout.fields[i]);
+                    emit({.op = Op::Field, .dst = field, .a = value, .imm = i});
+                    fields.push_back(cloned(field));
+                }
+                emit({.op = Op::Case, .dst = result, .imm = c, .args = std::move(fields)});
+                end(Term::Br, {}, exit);
+                current_ = next;
+            }
+            end(Term::Br, {}, exit);
+            current_ = exit;
+            return result;
+        }
         if (layout.kind != Layout::Array) {
             std::vector<Reg> fields;
             for (u32 i = 0; i < layout.fields.size(); ++i) {
@@ -1726,12 +1880,12 @@ private:
                 emit({.op = Op::Field, .dst = field, .a = value, .imm = i});
                 fields.push_back(cloned(field));
             }
-            emit({.op = Op::Make, .dst = copy, .args = std::move(fields)});
-            return copy;
+            emit({.op = Op::Make, .dst = result, .args = std::move(fields)});
+            return result;
         }
         const Reg count = reg(Type::I64), limit = reg(Type::U64), at = constant(Type::U64, 0), more = reg(Type::Bool);
         emit({.op = Op::Field, .dst = count, .a = value, .imm = 1});
-        emit({.op = Op::Allocate, .dst = copy, .a = count});
+        emit({.op = Op::Allocate, .dst = result, .a = count});
         emit({.op = Op::Widen, .dst = limit, .a = count});
         const u32 head = block(), body = block(), exit = block();
         end(Term::Br, {}, head);
@@ -1741,11 +1895,40 @@ private:
         current_ = body;
         const Reg element = reg(layout.element);
         emit({.op = Op::Load, .dst = element, .a = value, .b = at});
-        emit({.op = Op::Store, .a = copy, .b = at, .args = {cloned(element)}});
+        emit({.op = Op::Store, .a = result, .b = at, .args = {cloned(element)}});
         emit({.op = Op::WrapAdd, .dst = at, .a = at, .b = constant(Type::U64, 1)});
         end(Term::Br, {}, head);
         current_ = exit;
-        return copy;
+        return result;
+    }
+    // The function that clones values of type, built the first time a value
+    // holding itself is cloned.
+    u32 clone_function(Type type) {
+        const u32 index = layout_index(type);
+        if (const auto it = clones_.find(index); it != clones_.end()) return it->second;
+        const auto function = static_cast<u32>(program_.functions.size());
+        clones_.emplace(index, function);
+        const auto caller = static_cast<usize>(fun_ - program_.functions.data());
+        const u32 resume = current_;
+        const Span span = fun_->span;
+        auto saved = std::exchange(cloning_, {index});
+        auto& out = program_.functions.emplace_back();
+        std::string name = std::format("$clone<{}>", program_.layouts[index].name);
+        for (u32 n = 1; !instance_names_.insert(name).second; ++n)
+            name = std::format("$clone<{}>.{}", program_.layouts[index].name, n);
+        out.name = std::move(name);
+        out.span = span;
+        fun_ = &out;
+        const Reg value = reg(type);
+        fun_->params = 1;
+        fun_->result = type;
+        current_ = block();
+        end(Term::Ret, clone_fields(value));
+        prune();
+        cloning_ = std::move(saved);
+        fun_ = &program_.functions[caller];
+        current_ = resume;
+        return function;
     }
     // Whether values of a type hold array elements, which a clone must copy.
     bool owns(Type type) {
@@ -1754,7 +1937,7 @@ private:
         const auto& layout = program_.layouts[layout_index(type)];
         // A function value's environment is shared, like a String's bytes.
         bool result = layout.kind == Layout::Array;
-        if (layout.kind == Layout::Struct || layout.kind == Layout::Tuple || layout.kind == Layout::Optional)
+        if (layout.kind != Layout::Array && layout.kind != Layout::Function && layout.kind != Layout::Environment)
             result = std::ranges::any_of(program_.layouts[layout_index(type)].fields, [&](Type field) { return owns(field); });
         owners_of_.emplace(layout_index(type), result);
         return result;
@@ -1887,6 +2070,12 @@ private:
                             inst.args[i] = lift(fun, out, inst.args[i], layout.fields[i]);
                         break;
                     }
+                    case Op::Case: {
+                        const auto& layout = program_.layouts[layout_index(fun.regs[inst.dst.id])];
+                        for (usize i = 0; i < inst.args.size(); ++i)
+                            inst.args[i] = lift(fun, out, inst.args[i], layout.fields[layout.payloads[inst.imm] + i]);
+                        break;
+                    }
                     case Op::With:
                         inst.b = lift(fun, out, inst.b, program_.layouts[layout_index(fun.regs[inst.a.id])].fields[inst.imm]);
                         break;
@@ -1934,11 +2123,14 @@ private:
     std::vector<PendingFunction> funs_;
     std::vector<ScalarTypes::TypeArgument> env_;  // the type arguments of the instance being lowered
     std::unordered_map<std::string, u64> strings_;  // literal bytes to their index in program_.strings
-    std::unordered_map<usize, u32> layouts_;  // struct type descriptor to its index in program_.layouts
+    std::unordered_map<usize, u32> layouts_;  // struct or enum type descriptor to its index in program_.layouts
+    std::unordered_map<usize, u32> cases_;    // enum case binding to its index among its enum's cases
     std::unordered_map<usize, u32> tuples_;   // tuple type descriptor to its index in program_.layouts
     std::unordered_map<usize, u32> function_types_;  // function type descriptor to its index in program_.layouts
     std::unordered_map<usize, u32> arrays_;   // array type descriptor to its index in program_.layouts
     std::unordered_map<u32, bool> owners_of_;  // layout index to whether its values hold array elements
+    std::unordered_map<u32, u32> clones_;  // layout index to its clone function
+    std::vector<u32> cloning_;             // layouts whose clones are being built in place
     std::unordered_map<u32, u32> optionals_;  // an optional's value type to its index in program_.layouts
     std::unordered_map<u32, u32> fields_;     // field declaration offset to its declaration index
     std::unordered_map<const FunItem*, const TypeDeclItem*> owners_;  // a method's struct

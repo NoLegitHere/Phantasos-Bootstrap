@@ -1,0 +1,24 @@
+gate_enums.phs:19:10: error[E0600]: stage0 code generation does not support generic enums yet
+   19 | enum Opt<T> {
+      |          ^
+gate_enums.phs:24:11: error[E0600]: stage0 code generation does not support values of type 'Float64' yet
+   24 |     value(Float64)
+      |           ^^^^^^^
+gate_enums.phs:27:21: error[E0600]: stage0 code generation does not support values of type 'Real' yet
+   27 | struct HoldsReal(r: Real)
+      |                     ^^^^
+gate_enums.phs:30:9: error[E0600]: stage0 code generation does not support enum methods yet
+   30 |     fun area(): Int = 1
+      |         ^^^^
+gate_enums.phs:32:6: error[E0600]: stage0 code generation does not support enums without cases yet
+   32 | enum Empty {}
+      |      ^^^^^
+gate_enums.phs:34:14: error[E0600]: stage0 code generation does not support enums that implement interfaces yet
+   34 | enum Tagged: Named {
+      |              ^^^^^
+gate_enums.phs:36:9: error[E0600]: stage0 code generation does not support enum methods yet
+   36 |     fun name(): Int = 1
+      |         ^^^^
+gate_enums.phs:44:12: error[E0600]: stage0 code generation does not support 'match' yet
+   44 |     return match t {
+      |            ^^^^^^^^^

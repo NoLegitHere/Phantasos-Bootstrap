@@ -15,7 +15,7 @@
 
 // Generic functions and structs the gate accepts, and uses of them it does
 // not yet: type arguments outside the subset or without a value, also in
-// generic function values, and structs that hold themselves through type
+// generic function values, and structs that hold themselves with bigger type
 // arguments.
 
 fun identity<T>(x: T): T = x
@@ -29,6 +29,8 @@ struct Box<T>(value: T) {
 }
 
 struct Looped<T>(inner: Box<[Looped<T>]>)
+struct Grows<T>(inner: Box<[Shrinks<(T, Int)>]>)
+struct Shrinks<T>(outer: [Grows<T>])
 
 fun boxes(): Int {
     let b = Box(value: 1).same("s")

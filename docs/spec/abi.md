@@ -71,8 +71,16 @@ pointer to a subclass object is also a valid pointer to its superclass.
 
 ## A.5 Enums and optionals
 - `enum`: the tag is the smallest unsigned integer that fits the number of
-  cases, followed by a payload union aligned to the largest payload
-  alignment.
+  cases, at offset 0, numbering them from 0 in declaration order. It is
+  followed by a payload union aligned to the largest payload alignment:
+  each case lays out its payload fields like a struct's (A.2), starting at
+  the tag's size rounded up to that alignment. The enum's alignment is the
+  largest of the tag's and the payloads', its size is the end of the
+  largest case rounded up to it, and it is passed like a struct of that
+  size. Bytes that the current case does not use are zero. So
+  `enum Tok { num(Int), pair(a: Int8, b: Bool), word(String) }` has a
+  one-byte tag, puts every payload at 8 (`pair` puts `b` at 8 and `a` at 9),
+  and takes 24 bytes.
 - **Niche optimization**: `T?` for a class reference, `shared T`, `weak T`,
   or a non-null pointer is a single pointer, with `none == 0`.
 - Any other `T?` is laid out like a struct of a `Bool` tag, set when it holds

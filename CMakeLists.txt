@@ -89,5 +89,8 @@ if(BUILD_TESTING)
         add_test(NAME ${suite} COMMAND phantasos-${suite}-tests)
     endforeach()
     # Bound descriptor, member and inheritance graph regressions.
-    set_tests_properties(composites members hierarchy generics inference bodies closures flow gate mir x86_64 elf PROPERTIES TIMEOUT 30)
+    set_tests_properties(composites members hierarchy generics inference bodies closures flow gate mir elf PROPERTIES TIMEOUT 30)
+    # The x86_64 suite runs every program twice, natively and in the
+    # interpreter, and takes over 20 s under sanitizers.
+    set_tests_properties(x86_64 PROPERTIES TIMEOUT 60)
 endif()

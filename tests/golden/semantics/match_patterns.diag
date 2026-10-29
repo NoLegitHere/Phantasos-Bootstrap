@@ -22,9 +22,15 @@ match_patterns.phs:59:9: error[E0400]: expected 'Tok', found 'Int'
 match_patterns.phs:60:14: error[E0400]: expected 'Int', found 'Bool'
    60 |         .num(true) -> 7
       |              ^^^^
-match_patterns.phs:61:18: error[E0400]: 'n' has type 'Bool' here but 'Int' in an earlier alternative
+match_patterns.phs:61:28: error[E0400]: 'n' has type 'Int' here but 'Bool' in an earlier alternative
    61 |         .pair(_, n) | .num(n) -> 8
-      |                  ^
+      |                            ^
 match_patterns.phs:65:9: error[E0400]: case pattern 'plus' needs an enum to match, found 'Int'
    65 |         .plus -> 1
       |         ^^^^^
+match_patterns.phs:78:52: error[E0400]: 'x' has type 'Square' here but 'Circle' in an earlier alternative
+   78 |         .item(is Circle as x) | .item(is Square as x) -> 1
+      |                                                    ^
+match_patterns.phs:79:39: error[E0400]: 'y' has type 'Shape' here but 'Circle' in an earlier alternative
+   79 |         .item(is Circle as y) | .item(y) -> 2
+      |                                       ^

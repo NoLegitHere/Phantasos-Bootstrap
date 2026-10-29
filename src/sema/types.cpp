@@ -4466,30 +4466,37 @@ private:
                     case PatKind::Binding: {
                         const auto& binding = *cast<BindingPat>(pat);
                         pattern_types_[pat] = type;
-                        const auto [it, fresh] = names.try_emplace(binding.name.sym.id, type);
-                        if (!fresh && known(it->second) && known(type) && it->second != type) {
-                            diag_.error(DiagCode::ScalarTypeMismatch, binding.name.span,
-                                        "'{}' has type '{}' here but '{}' in an earlier alternative", names_.str(binding.name.sym),
-                                        scalar_type_name(type), scalar_type_name(it->second));
-                        }
+                        same_binding(names, binding.name, type);
                         break;
                     }
+                    case PatKind::Is:
+                        // `is T as x` binds a T.
+                        if (const auto& test = *cast<IsPat>(pat); !test.binding.sym.empty())
+                            same_binding(names, test.binding, annotation(test.type));
+                        break;
                     case PatKind::Literal:
                         if (known(type)) (void)require(cast<LiteralPat>(pat)->literal, type, pat->span);
                         break;
                     case PatKind::Case: case_pattern(*cast<CasePat>(pat), type, work); break;
                     case PatKind::Alt:
-                        for (const Pattern* alt : cast<AltPat>(pat)->alts) work.push_back({alt, type});
+                        // Pushed last first, so that they are visited in order.
+                        for (const Pattern* alt : std::views::reverse(cast<AltPat>(pat)->alts)) work.push_back({alt, type});
                         break;
-                    case PatKind::Wildcard: case PatKind::Is: case PatKind::Error: break;
+                    case PatKind::Wildcard: case PatKind::Error: break;
                 }
             }
         }
     }
+    void same_binding(FlatMap<u32, Type>& names, Name name, Type type) {
+        const auto [it, fresh] = names.try_emplace(name.sym.id, type);
+        if (!fresh && known(it->second) && known(type) && it->second != type)
+            diag_.error(DiagCode::ScalarTypeMismatch, name.span, "'{}' has type '{}' here but '{}' in an earlier alternative",
+                        names_.str(name.sym), scalar_type_name(type), scalar_type_name(it->second));
+    }
     // `.num(n)`, `Tok.num(n)` and `num(n)` name a case of the enum being
     // matched, with one pattern per payload field.
     void case_pattern(const CasePat& pat, Type type, std::vector<std::pair<const Pattern*, Type>>& work) {
-        const auto parts = [&](Type part) { for (const Pattern* arg : pat.args) work.push_back({arg, part}); };
+        const auto parts = [&](Type part) { for (const Pattern* arg : std::views::reverse(pat.args)) work.push_back({arg, part}); };
         if (!known(type)) return parts(type);
         const BindingId owner = type.optional_depth ? BindingId{} : enum_of(type);
         const Name name = pat.path.back();
@@ -4532,7 +4539,7 @@ private:
                         case_name(id), fields.size(), fields.size() == 1 ? "" : "s", pat.args.size());
             return parts({Type::Error});
         }
-        for (usize i = 0; i < fields.size(); ++i) work.push_back({pat.args[i], fields[i]});
+        for (usize i = fields.size(); i-- > 0;) work.push_back({pat.args[i], fields[i]});
     }
     // `Tok.plus` is a value of its enum. `Tok.num` has to be called with its
     // payload (3.34).

@@ -66,3 +66,18 @@ fun errors(t: Tok, i: Int) {
         _ -> 0
     }
 }
+
+// Alternatives that bind a name through `is T as x` give it type T.
+open class Shape {}
+class Circle: Shape {}
+class Square: Shape {}
+enum Holder { item(Shape) }
+
+fun shapes(h: Holder): Int {
+    let n: Int = match h {
+        .item(is Circle as x) | .item(is Square as x) -> 1
+        .item(is Circle as y) | .item(y) -> 2
+        _ -> 0
+    }
+    return n
+}

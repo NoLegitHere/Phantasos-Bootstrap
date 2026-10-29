@@ -1,0 +1,61 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Enum cases (3.34): `Tok.plus`, `Tok.num(1)` and, where the context
+// expects an enum, `.plus` and `.num(1)`.
+enum Tok {
+    num(Int8)
+    pair(a: Int, b: Bool)
+    plus
+}
+
+enum Dir {
+    up
+    down
+
+    fun flip(): Dir {
+        if self == .up { return .down }
+        return up
+    }
+}
+
+fun pick(flag: Bool): Tok {
+    if flag { return .plus }
+    return .num(7)
+}
+
+fun valid() {
+    let a = Tok.plus
+    let b: Tok = .pair(b: true, a: 1)
+    let c: Tok? = .num(-1)
+    let list: [Tok] = [.plus, .num(2), Tok.pair(1, b: false)]
+    let d = Dir.up.flip()
+    let same: Bool = d == .down
+}
+
+fun errors() {
+    let wrongType: Int = Tok.plus
+    let payloadType = Tok.num(true)
+    let arity = Tok.num(1, 2)
+    let unlabeled = Tok.num(value: 1)
+    let range = Tok.num(300)
+    let unknown: Tok = .nope
+    let bare = Tok.num
+    let called = Tok.plus()
+    let implicitBare: Tok = .num
+    let implicitCalled: Tok = .plus(1)
+    let notEnum: Int = .plus
+    let mixed = Dir.up == Tok.plus
+}

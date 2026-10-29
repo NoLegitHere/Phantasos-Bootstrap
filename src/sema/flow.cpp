@@ -1211,10 +1211,14 @@ private:
         return record && record->candidates.size() == 1 ? record->candidates.front() : BindingId{};
     }
 
-    // Arguments move into `own` parameters and into the stored fields of a
-    // primary constructor.
+    // Arguments move into `own` parameters, into the stored fields of a
+    // primary constructor and into the payload of an enum case.
     void consume_arguments(const CallExpr& call) {
         const auto* checked = types_.call(&call);
+        if (checked && checked->state == CallState::Resolved && checked->kind == CallKind::EnumCase) {
+            for (const auto& arg : call.args) consume(arg.value);
+            return;
+        }
         // `a.append(x)` moves x into the array.
         if (checked && checked->state == CallState::Resolved && checked->kind == CallKind::Array &&
             checked->array == ArrayMember::Append && !call.args.empty())
@@ -1561,7 +1565,8 @@ private:
             case CallKind::NumericConversion:
             case CallKind::Builtin:
             case CallKind::Clone:
-            case CallKind::Array: return false;
+            case CallKind::Array:
+            case CallKind::EnumCase: return false;
             case CallKind::IndirectFunction: {
                 const auto* function = types_.descriptor(types_.expression(call.callee));
                 return !function || function->throws;

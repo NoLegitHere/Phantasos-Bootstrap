@@ -155,8 +155,9 @@ enum class CallState : u8 { Resolved, Deferred, Error };
 // binding and whose parameter_types hold the selected overload. Clone is the
 // built-in `x.clone()`, with no target and `x` as its receiver (3.31). Array
 // is a built-in array method, with no target, the array as its receiver and
-// the method in `array` (3.33).
-enum class CallKind : u8 { Function, NumericConversion, NominalConstructor, IndirectFunction, Method, Builtin, Clone, Array };
+// the method in `array` (3.33). EnumCase builds a case of an enum from its
+// payload, with the case binding as its target (3.34).
+enum class CallKind : u8 { Function, NumericConversion, NominalConstructor, IndirectFunction, Method, Builtin, Clone, Array, EnumCase };
 // The built-in members of `[T]` (3.33).
 enum class ArrayMember : u8 { Count, IsEmpty, Append, RemoveLast };
 struct CheckedMember {
@@ -256,8 +257,9 @@ public:
         const auto it = conversions_.find(expr);
         return it == conversions_.end() ? nullptr : &it->second;
     }
-    // Ordinary MemberExpr and implicit member NameExpr records. Resolution is
-    // left unchanged; overloaded method values can still have Deferred types.
+    // Ordinary MemberExpr, implicit member NameExpr and `.case` ImplicitMemberExpr
+    // records. Resolution is left unchanged; overloaded method values can still
+    // have Deferred types.
     const CheckedMember* member(const ast::Expr* expr) const {
         const auto it = members_.find(expr);
         return it == members_.end() ? nullptr : &it->second;

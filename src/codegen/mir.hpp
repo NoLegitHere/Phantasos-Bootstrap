@@ -21,6 +21,7 @@
 #include <string_view>
 #include <vector>
 
+#include "sema/flow.hpp"
 #include "sema/types.hpp"
 
 // MIR: the typed, block-structured IR between the checked AST and machine
@@ -85,6 +86,7 @@ enum class Op : u8 {
     Store,    // element b of the array a becomes args[0]; b is a U64 below its count
     Reserve,  // the array a with room for one more element: a full one's elements move to new
               // memory with twice the capacity, or 4 when it was 0
+    Allocate, // a new array of type dst whose count and capacity are the I64 a, its elements zero
 };
 
 struct Inst {
@@ -173,9 +175,10 @@ void place_fields(const Program& program, Layout& layout);
 // assignment's target before its value. Unreachable blocks are removed.
 // Expression lowering is iterative; control nesting follows the syntax, which
 // the parser bounds (E0112).
-// Panic messages name source locations through sources.
+// Panic messages name source locations through sources. In an instance,
+// the generic moves out of borrows that flow names are copied with clone.
 [[nodiscard]] Program lower(const ast::File& file, const Resolution& resolution, ScalarTypes& types,
-                            const Interner& names, const SourceManager& sources);
+                            const FlowFacts& flow, const Interner& names, const SourceManager& sources);
 
 [[nodiscard]] std::string dump(const Program& program);
 

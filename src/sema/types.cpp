@@ -4107,8 +4107,8 @@ private:
     }
     enum class Expansion : u8 { Yes, No, Deferred, Failed };
     // Strings, Copy scalars, function values and payload-free enums clone, as
-    // do optionals, tuples and non-generic structs made of clonable parts.
-    // Generic parameters, arrays, classes and other references do not yet.
+    // do optionals, tuples, arrays and non-generic structs made of clonable
+    // parts. Generic parameters, classes and other references do not yet.
     Expansion clonable(Type root, Type& blocker) {
         std::vector<Type> work{root};
         FlatSet<usize> seen;
@@ -4121,6 +4121,9 @@ private:
                     // Each distinct type is checked once, however often it is shared.
                     if (!seen.insert(type.detail)) break;
                     for (const auto element : types_.descriptor(type)->parameters) work.push_back(element);
+                    break;
+                case Type::Array:
+                    if (seen.insert(type.detail)) work.push_back(types_.descriptor(type)->element);
                     break;
                 case Type::Nominal: {
                     const auto* descriptor = types_.descriptor(type);
@@ -4150,7 +4153,7 @@ private:
                     }
                     break;
                 }
-                case Type::Array: case Type::Shared: case Type::Weak: case Type::Projection: case Type::TypeParameter:
+                case Type::Shared: case Type::Weak: case Type::Projection: case Type::TypeParameter:
                 case Type::Error:
                     blocker = type;
                     return Expansion::No;

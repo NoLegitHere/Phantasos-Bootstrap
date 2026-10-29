@@ -74,6 +74,7 @@ private:
         std::optional<mir::Program> mir;
         std::optional<Resolution> resolution;
         std::optional<ScalarTypes> scalar_types;
+        FlowFacts flow;
     };
 
     SourceManager sources_;

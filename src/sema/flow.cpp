@@ -202,6 +202,8 @@ public:
             if (const Item* item = resolution.bindings()[id].item) items_.emplace(item, BindingId{id});
     }
 
+    FlowFacts facts() { return std::move(facts_); }
+
     void run(const File& file) {
         struct Work { const Item* item; const TypeDeclItem* owner; };
         std::vector<Work> work;
@@ -635,6 +637,45 @@ private:
         return result;
     }
 
+    std::string_view text(Span span) const {
+        const auto& file = diag_.sources().file(span.file);
+        return std::string_view(file.text).substr(span.lo, span.hi - span.lo);
+    }
+
+    // While a `for` loop's body runs, the array it runs over, and every place
+    // that holds it, cannot change or move (E0506, 3.33).
+    void changes(const std::optional<Path>& found, Span span, std::string_view spelled, std::string_view verb) {
+        if (!found) return;
+        for (auto it = iterated_.rbegin(); it != iterated_.rend(); ++it) {
+            const auto found_overlap = overlap(*found, it->path);
+            if (found_overlap == Overlap::No) continue;
+            if (shown(DiagCode::ExclusiveAccess) && !reported_exclusive_.insert(span.lo)) return;
+            auto& d = error(DiagCode::ExclusiveAccess, span, "cannot {} '{}' while a 'for' loop runs over '{}'{}", verb,
+                            spelled, text(it->span), found_overlap == Overlap::Maybe ? ", which it may overlap" : "");
+            d.notes.push_back({it->span, "the loop runs over it here"});
+            return;
+        }
+    }
+    // The `inout` arguments and the `mut fun` receiver of a call inside a
+    // `for` loop's body.
+    void loop_arguments(const CallExpr& call, const CheckedCall& checked, const FunItem& fun) {
+        if (iterated_.empty()) return;
+        for (usize i = 0; i < checked.parameters.size() && i < call.args.size(); ++i) {
+            const usize index = checked.parameters[i];
+            if (index < fun.sig.params.size() && fun.sig.params[index].conv == Convention::Inout)
+                changes(path(call.args[i].value), call.args[i].value->span, text(call.args[i].value->span), "change");
+        }
+        if (checked.kind != CallKind::Method || !has_modifier(fun.mods, Modifier::Mut) || has_modifier(fun.mods, Modifier::Static))
+            return;
+        if (checked.receiver) {
+            changes(path(checked.receiver), checked.receiver->span, text(checked.receiver->span), "change");
+            return;
+        }
+        const Expr* callee = unparen(call.callee);
+        if (const auto* generic = as<GenericInstExpr>(callee)) callee = unparen(generic->base);
+        if (callee->kind == ExprKind::Name) changes(Path{kSelfRoot, {}}, callee->span, "self", "change");
+    }
+
     // While a call runs, an `inout` argument or the receiver of a `mut fun`
     // has exclusive access to its place, so no other argument of the call,
     // nor the receiver, may name an overlapping place (E0506, 3.32).
@@ -653,10 +694,6 @@ private:
             }))
             return;
         std::vector<Use> accesses;
-        const auto text = [&](Span span) {
-            const auto& file = diag_.sources().file(span.file);
-            return std::string_view(file.text).substr(span.lo, span.hi - span.lo);
-        };
         if (checked.kind == CallKind::Method && !has_modifier(fun.mods, Modifier::Static)) {
             const bool mut = has_modifier(fun.mods, Modifier::Mut);
             std::string who = mut ? std::format("'mut fun {}'", names_.str(fun.name.sym)) : std::string{};
@@ -754,6 +791,7 @@ private:
         if (!fun) return;
         inout_arguments(call, *checked, *fun);
         exclusive_arguments(call, *checked, *fun);
+        loop_arguments(call, *checked, *fun);
         if (checked->kind != CallKind::Method || !has_modifier(fun->mods, Modifier::Mut) ||
             has_modifier(fun->mods, Modifier::Static))
             return;
@@ -781,6 +819,7 @@ private:
     // `append` and `removeLast` change the array, which must be mutable (3.33).
     void mutating_array_call(const CallExpr& call, const CheckedCall& checked) {
         if (checked.array != ArrayMember::Append && checked.array != ArrayMember::RemoveLast) return;
+        changes(path(checked.receiver), checked.receiver->span, text(checked.receiver->span), "change");
         // An array is a value, so the whole place it is stored in must be mutable.
         const Place found = place(checked.receiver);
         if (found.access != Access::ReadOnly && found.access != Access::Immutable && found.access != Access::Temporary) return;
@@ -949,7 +988,9 @@ private:
             d.notes.push_back({found->declared, "declared here without an initializer"});
         }
         // A borrowed value is reported where a reachable use would move it.
-        use(id, name.span, consumed_.contains(&name) && !(state.live && borrowed_move(name)), "used", state);
+        const bool moves = consumed_.contains(&name) && !(state.live && borrowed_move(name));
+        if (moves && state.live && movable(id)) changes(Path{root_key(id), {}}, name.span, text(name.span), "move");
+        use(id, name.span, moves, "used", state);
     }
 
     // The move bit of a local or `own` parameter of the current callable
@@ -1087,7 +1128,7 @@ private:
                     return false;
                 }
             }
-            if (copyable(types_.binding(id.valid() ? id : implicit_binding(*name)), true)) return false;
+            if (generic_copy(types_.binding(id.valid() ? id : implicit_binding(*name)), expr)) return false;
         } else {
             if (expr.kind == ExprKind::SelfValue || expr.kind == ExprKind::Super) {
                 // Only an instance method borrows its receiver, also viewed as its superclass.
@@ -1111,9 +1152,16 @@ private:
             } else {
                 subject = "an element";
             }
-            if (copyable(types_.expression(&expr), true)) return false;
+            if (generic_copy(types_.expression(&expr), expr)) return false;
         }
         borrow_error(expr.span, subject, fix);
+        return true;
+    }
+    // Whether a type is Copy once generic parameters count as Copy; a move
+    // that only that allows is recorded for code generation.
+    bool generic_copy(ScalarType type, const Expr& expr) {
+        if (!copyable(type, true)) return false;
+        if (!copyable(type)) facts_.copies.insert(&expr);
         return true;
     }
     void borrow_error(Span span, std::string_view subject, const std::string& fix) {
@@ -1187,6 +1235,9 @@ private:
                              "a closure can be called more than once; capture a copy made with '" + std::string(name) +
                                  ".clone()' instead");
             // A loop element is borrowed from its array, so it cannot move into the closure (3.33).
+            if (state.live && binding.kind == BindingKind::Local && loop_elements_.contains(binding.name.span.lo) &&
+                !copyable(types_.binding(capture.binding)))
+                facts_.copied_captures.insert({&closure, static_cast<u32>(capture.binding.value)});
             if (state.live && binding.kind == BindingKind::Local && loop_elements_.contains(binding.name.span.lo) &&
                 !copyable(types_.binding(capture.binding), true)) {
                 invalid_captures_.insert(capture.binding.value);
@@ -1781,7 +1832,11 @@ private:
                 const auto& loop_stmt = *cast<ForStmt>(&stmt);
                 loop_elements_.insert(loop_stmt.var.span.lo);
                 eval(loop_stmt.iter, state);
+                // An array the loop reads in place, rather than a temporary or a range.
+                auto found = path(loop_stmt.iter);
+                if (found) iterated_.push_back({std::move(*found), unparen(loop_stmt.iter)->span});
                 loop(nullptr, loop_stmt.body, state, true);
+                if (found) iterated_.pop_back();
                 break;
             }
             case StmtKind::Loop: loop(nullptr, cast<LoopStmt>(&stmt)->body, state, false); break;
@@ -1817,6 +1872,7 @@ private:
                 else if (assign.op != AssignOp::Assign) read(*name, state);
                 if (assign.op == AssignOp::Assign) consume(assign.value);
                 eval(assign.value, state);
+                if (state.live) changes(path(assign.target), assign.target->span, text(assign.target->span), "change");
                 if (name) write(*name, state);
                 else write_place(*assign.target);
                 break;
@@ -1866,6 +1922,12 @@ private:
     FlatSet<u32> reported_borrows_;        // E0505 spans, which loops and cleanups can reach more than once
     FlatSet<u32> loop_elements_;           // `for` bindings, which borrow array elements
     FlatSet<u32> reported_exclusive_;      // E0506 spans, likewise
+    struct Iterated {
+        Path path;
+        Span span;
+    };
+    std::vector<Iterated> iterated_;       // the arrays that the enclosing `for` loops run over, innermost last
+    FlowFacts facts_;
     std::vector<const DeferStmt*> defers_;  // cleanups of the enclosing scopes, innermost last
     std::vector<usize> scopes_;             // defers_ size where each enclosing block starts
     std::vector<usize> loops_;              // defers_ size where each enclosing loop body starts
@@ -1877,9 +1939,11 @@ private:
 
 }  // namespace
 
-void check_flow(const File& file, const Resolution& resolution, const ScalarTypes& types, const Interner& names,
-                DiagEngine& diag) {
-    FlowChecker(resolution, types, names, diag).run(file);
+FlowFacts check_flow(const File& file, const Resolution& resolution, const ScalarTypes& types, const Interner& names,
+                     DiagEngine& diag) {
+    FlowChecker checker(resolution, types, names, diag);
+    checker.run(file);
+    return checker.facts();
 }
 
 }  // namespace phs

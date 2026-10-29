@@ -1,0 +1,56 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// A `for` loop over an array (3.33) has exclusive access to the place it
+// runs over: the body may read it, but not assign to it, change it, pass it
+// `inout` or move it (E0506). Other places, and loops over a clone, are fine.
+
+struct Holder(var xs: [Int], var count: Int)
+struct Walker(var xs: [Int]) {
+    mut fun clear() { xs = [] }
+    mut fun walk() {
+        for x in xs { clear() }
+        for x in xs { print(x) }
+    }
+}
+
+fun take(xs: own [Int]) {}
+fun reset(xs: inout [Int]) { xs = [] }
+
+fun changes() {
+    var a = [1, 2]
+    for x in a { a.append(x) }
+    for x in a { a[0] = 3 }
+    for x in a { a = [] }
+    for x in a { reset(a) }
+    for x in a { take(a) }
+    var h = Holder([1], 0)
+    for x in h.xs { h.xs.append(1) }
+    for x in h.xs { h = Holder([], 0) }
+    var g = [[1]]
+    for x in g[0] { g[0].append(2) }
+    for x in g[0] { g[1] = [] }
+}
+
+fun allowed() {
+    var a = [1, 2]
+    var total = 0
+    for x in a { total += a[0] + a.count }
+    for x in a.clone() { a.append(x) }
+    for x in [1, 2] { a.append(x) }
+    for i in 0..<a.count { a.append(i) }
+    var h = Holder([1], 0)
+    for x in h.xs { h.count += x }
+}

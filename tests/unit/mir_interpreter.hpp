@@ -200,6 +200,24 @@ private:
                     regs[inst.dst.id] = aggregates_.size() - 1;
                     continue;
                 }
+                if (inst.op == Op::Allocate) {
+                    const Type type = fun.regs[inst.dst.id];
+                    CHECK(mir::is_aggregate(type) && fun.regs[inst.a.id] == Type::I64);
+                    const auto& layout = program_.layouts[mir::layout_index(type)];
+                    CHECK(layout.kind == mir::Layout::Array);
+                    const u64 count = regs[inst.a.id];
+                    CHECK(static_cast<i64>(count) >= 0 && count < (u64{1} << 32));
+                    u64 data = 0;
+                    if (count) {
+                        std::vector<u64> elements;
+                        for (u64 i = 0; i < count; ++i) elements.push_back(zero(layout.element));
+                        buffers_.push_back(std::move(elements));
+                        data = buffers_.size();
+                    }
+                    aggregates_.push_back({data, count, count});
+                    regs[inst.dst.id] = aggregates_.size() - 1;
+                    continue;
+                }
                 if (inst.op == Op::Reserve) {
                     // A full array moves to a new buffer; copies keep the old one.
                     const Type type = fun.regs[inst.a.id];
@@ -330,7 +348,7 @@ private:
                     case Op::Truncate: out = normalize(type, a); break;
                     case Op::Call: case Op::Print: case Op::Make: case Op::Field: case Op::With:
                     case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None:
-                    case Op::Array: case Op::Load: case Op::Store: case Op::Reserve: break;
+                    case Op::Array: case Op::Load: case Op::Store: case Op::Reserve: case Op::Allocate: break;
                 }
                 if (trap) return {true, 0, trap};
                 regs[inst.dst.id] = out;

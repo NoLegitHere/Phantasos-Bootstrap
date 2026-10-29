@@ -91,7 +91,7 @@ foundation. Complete.
   - [x] Arrays in `check`: built-in members and `for` over arrays and ranges.
   - [x] Array values in code generation, with bounds checks.
   - [x] `append` growth and `for` loops in code generation.
-  - [ ] Moves, `.clone()` and generics for arrays and optionals.
+  - [x] Moves, `.clone()` and generics for arrays and optionals.
   - [ ] Samples and run tests.
 - [ ] Generic base substitution and built-in traits: generic base and
   interface graphs, derived `Copy`/`Sendable`/`Error`, associated defaults and

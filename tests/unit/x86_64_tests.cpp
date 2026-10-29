@@ -770,8 +770,87 @@ void growth_and_loops() {
            "        if i == 6 { break }\n        n += i * 1000000\n    }\n    return n\n}\n");
     agrees("fun main(): Int {\n    var words = [\"a\"]\n    for i in 0..<100 { words.append(\"bc\") }\n"
            "    var grid: [[Int]] = [[], [1]]\n    grid[0].append(7)\n    grid[0].append(8)\n"
-           "    var a = [1, 2]\n    for x in a { a.append(x) }\n"
+           "    var a = [1, 2]\n    for x in a.clone() { a.append(x) }\n"
            "    return words.count + grid[0][1] * 1000 + a.count * 100000\n}\n");
+}
+
+void array_ownership() {
+    // Clones and generic copies of arrays (as in mir_tests).
+    agrees("struct Bag(var items: [Int], var name: String)\n"
+           "struct Stack<T>(var items: [T]) {\n"
+           "    mut fun push(x: own T) { items.append(x) }\n"
+           "    mut fun pop(): T? = items.removeLast()\n"
+           "    fun peek(): T? {\n"
+           "        if items.isEmpty { return none }\n"
+           "        return items[items.count - 1]\n"
+           "    }\n"
+           "}\n"
+           "fun first<T>(xs: [T]): T? {\n"
+           "    if xs.isEmpty { return none }\n"
+           "    return xs[0]\n"
+           "}\n"
+           "fun total(a: [Int]): Int {\n"
+           "    var s = 0\n"
+           "    for x in a { s += x }\n"
+           "    return s\n"
+           "}\n"
+           "fun main(): Int {\n"
+           "    var a = [1, 2, 3]\n"
+           "    var b = a.clone()\n"
+           "    b[0] = 10\n"
+           "    b.append(4)\n"
+           "    var grid = [[1, 2], [3]]\n"
+           "    var copy = grid.clone()\n"
+           "    copy[0][1] = 20\n"
+           "    copy[1].append(4)\n"
+           "    var bag = Bag([5, 6], \"x\")\n"
+           "    var other = bag.clone()\n"
+           "    other.items[0] = 50\n"
+           "    let maybe: [Int]? = [7]\n"
+           "    let empty: [Int]? = none\n"
+           "    var n = 0\n"
+           "    if let m = maybe.clone() { n += m[0] }\n"
+           "    if let m = empty.clone() { n += 1000 }\n"
+           "    var s = Stack<String>([])\n"
+           "    s.push(\"a\")\n"
+           "    s.push(\"bc\")\n"
+           "    var got = 0\n"
+           "    if let top = s.peek() { got += 1 }\n"
+           "    if let top = s.pop() { got += 10 }\n"
+           "    if let f = first([4, 5]) { got += f * 100 }\n"
+           "    if let f = first<Int>([]) { got += 1 }\n"
+           "    var r = total(a) + total(b) * 10 + grid[0][1] * 1000 + copy[0][1] * 10000\n"
+           "    r += grid[1].count * 1000000 + copy[1].count * 10000000 + bag.items[0] * 100000000\n"
+           "    return r + n * 1000000000 + got * 10000000000 + s.items.count * 100000000000000\n"
+           "}\n");
+    agrees("struct Box<T>(var value: T) {\n"
+           "    fun get(): T = value\n"
+           "}\n"
+           "fun first<T>(xs: [T]): T = xs[0]\n"
+           "fun id<T>(x: T): T = x\n"
+           "fun keep<T>(xs: [T]): [fun() -> T] {\n"
+           "    var out: [fun() -> T] = []\n"
+           "    for x in xs { out.append({ -> x }) }\n"
+           "    return out\n"
+           "}\n"
+           "fun pair<T>(x: T): (T, Int) = (x, 1)\n"
+           "fun main(): Int {\n"
+           "    var g = [[1]]\n"
+           "    var f = first(g)\n"
+           "    f[0] = 9\n"
+           "    var h = [2]\n"
+           "    var k = id(h)\n"
+           "    k[0] = 8\n"
+           "    let b = Box([3])\n"
+           "    var v = b.get()\n"
+           "    v[0] = 7\n"
+           "    var fs = keep(g)\n"
+           "    g[0][0] = 6\n"
+           "    let w = fs[0]()\n"
+           "    var p = pair(h)\n"
+           "    p.0[0] = 5\n"
+           "    return g[0][0] * 10000 + h[0] * 1000 + b.value[0] * 100 + w[0] * 10 + p.1\n"
+           "}\n");
 }
 
 int main() {
@@ -784,6 +863,7 @@ int main() {
     optional_chaining();
     arrays();
     growth_and_loops();
+    array_ownership();
     random_expressions();
     std::println("x86_64 tests passed");
 }

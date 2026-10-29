@@ -16,6 +16,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <format>
+#include <limits>
 #include <optional>
 #include <span>
 #include <string>
@@ -100,8 +101,9 @@ Op assign_op(AssignOp op) {
 
 class Lowerer {
 public:
-    Lowerer(const Resolution& resolution, ScalarTypes& types, const Interner& names, const SourceManager& sources)
-        : resolution_(resolution), types_(types), names_(names), sources_(sources) {
+    Lowerer(const Resolution& resolution, ScalarTypes& types, const FlowFacts& flow, const Interner& names,
+            const SourceManager& sources)
+        : resolution_(resolution), types_(types), flow_(flow), names_(names), sources_(sources) {
         for (usize id = 0; id < resolution.bindings().size(); ++id) {
             const auto& binding = resolution.bindings()[id];
             if (binding.item) items_.emplace(binding.item, BindingId{id});
@@ -1002,6 +1004,7 @@ private:
             u32 stage = 0;
             Reg result;
             u32 join = 0;
+            bool copied = false;  // already wrapped in a copy
         };
         std::vector<Task> tasks{{root}};
         std::vector<Reg> values;
@@ -1012,6 +1015,19 @@ private:
             Task& task = tasks.back();
             const Expr* expr = task.expr;
             const u32 stage = task.stage++;
+            // A generic value that moves out of a borrow (FlowFacts) is copied
+            // once its type argument owns an array, so that the two do not share
+            // elements.
+            if (stage == kCopy) {
+                tasks.pop_back();
+                values.back() = cloned(values.back());
+                continue;
+            }
+            if (stage == 0 && !task.copied && flow_.copies.contains(expr) && owns(lower_type(scalar(expr)))) {
+                task.stage = kCopy;
+                tasks.push_back({.expr = expr, .copied = true});
+                continue;
+            }
             switch (expr->kind) {
                 case ExprKind::Int: {
                     tasks.pop_back();
@@ -1335,7 +1351,10 @@ private:
             pending.captures.push_back(capture.binding);
             layout.fields.push_back(lower_type(binding_type(capture.binding)));
             layout.names.emplace_back(names_.str(resolution_.binding(capture.binding).name.sym));
-            captured.push_back(locals_.at(capture.binding.value));
+            const Reg value = locals_.at(capture.binding.value);
+            // A generic loop element is copied in, as it stays in its array (FlowFacts).
+            const bool copy = flow_.copied_captures.contains({&closure, static_cast<u32>(capture.binding.value)});
+            captured.push_back(copy && owns(layout.fields.back()) ? cloned(value) : value);
         }
         if (self_.valid() && uses_self(closure)) {
             pending.self = fun_->regs[self_.id];
@@ -1623,10 +1642,7 @@ private:
             return {};
         }
         if (checked.kind == CallKind::Array) return array_call(call, args);
-        if (checked.kind == CallKind::Clone) {
-            // Nothing owns heap memory yet, so a clone is the value itself (3.31).
-            return args.front();
-        }
+        if (checked.kind == CallKind::Clone) return args.front().valid() ? cloned(args.front()) : Reg{};
         if (checked.kind == CallKind::NominalConstructor) {
             // A diverging argument has already ended the block.
             for (const Reg arg : args)
@@ -1690,6 +1706,56 @@ private:
         return dst;
     }
 
+    // A copy of value that shares no elements with it (3.31): an array gets
+    // new memory holding a clone of each element, and a struct, tuple or
+    // optional that holds an array is rebuilt from clones of its fields.
+    // Everything else is copied as it is.
+    Reg cloned(Reg value) {
+        const Type type = fun_->regs[value.id];
+        if (!owns(type)) return value;
+        const Layout layout = program_.layouts[layout_index(type)];  // a copy; blocks below add registers
+        const Reg copy = reg(type);
+        if (layout.kind != Layout::Array) {
+            std::vector<Reg> fields;
+            for (u32 i = 0; i < layout.fields.size(); ++i) {
+                const Reg field = reg(layout.fields[i]);
+                emit({.op = Op::Field, .dst = field, .a = value, .imm = i});
+                fields.push_back(cloned(field));
+            }
+            emit({.op = Op::Make, .dst = copy, .args = std::move(fields)});
+            return copy;
+        }
+        const Reg count = reg(Type::I64), limit = reg(Type::U64), at = constant(Type::U64, 0), more = reg(Type::Bool);
+        emit({.op = Op::Field, .dst = count, .a = value, .imm = 1});
+        emit({.op = Op::Allocate, .dst = copy, .a = count});
+        emit({.op = Op::Widen, .dst = limit, .a = count});
+        const u32 head = block(), body = block(), exit = block();
+        end(Term::Br, {}, head);
+        current_ = head;
+        emit({.op = Op::Lt, .dst = more, .a = at, .b = limit});
+        end(Term::CondBr, more, body, exit);
+        current_ = body;
+        const Reg element = reg(layout.element);
+        emit({.op = Op::Load, .dst = element, .a = value, .b = at});
+        emit({.op = Op::Store, .a = copy, .b = at, .args = {cloned(element)}});
+        emit({.op = Op::WrapAdd, .dst = at, .a = at, .b = constant(Type::U64, 1)});
+        end(Term::Br, {}, head);
+        current_ = exit;
+        return copy;
+    }
+    // Whether values of a type hold array elements, which a clone must copy.
+    bool owns(Type type) {
+        if (!is_aggregate(type)) return false;
+        if (const auto it = owners_of_.find(layout_index(type)); it != owners_of_.end()) return it->second;
+        const auto& layout = program_.layouts[layout_index(type)];
+        // A function value's environment is shared, like a String's bytes.
+        bool result = layout.kind == Layout::Array;
+        if (layout.kind == Layout::Struct || layout.kind == Layout::Tuple || layout.kind == Layout::Optional)
+            result = std::ranges::any_of(program_.layouts[layout_index(type)].fields, [&](Type field) { return owns(field); });
+        owners_of_.emplace(layout_index(type), result);
+        return result;
+    }
+
     // `T.checked(x)`: x as a T when it fits, else `none`. It fits when
     // truncating keeps its bits and, between types of different signedness,
     // when it is not negative as the signed one.
@@ -1732,6 +1798,7 @@ private:
 
     // The longest type argument an instance's name spells out in full.
     static constexpr usize kArgumentNameLimit = 256;
+    static constexpr u32 kCopy = std::numeric_limits<u32>::max();  // value() stage that copies the result
     // The function of a generic function's instance for a call's type
     // arguments, added the first time a call needs it. The gate has bounded
     // how many there are (E0602).
@@ -1851,6 +1918,7 @@ private:
 
     const Resolution& resolution_;
     ScalarTypes& types_;
+    const FlowFacts& flow_;
     const Interner& names_;
     const SourceManager& sources_;
     std::unordered_map<const Item*, BindingId> items_;
@@ -1866,6 +1934,7 @@ private:
     std::unordered_map<usize, u32> tuples_;   // tuple type descriptor to its index in program_.layouts
     std::unordered_map<usize, u32> function_types_;  // function type descriptor to its index in program_.layouts
     std::unordered_map<usize, u32> arrays_;   // array type descriptor to its index in program_.layouts
+    std::unordered_map<u32, bool> owners_of_;  // layout index to whether its values hold array elements
     std::unordered_map<u32, u32> optionals_;  // an optional's value type to its index in program_.layouts
     std::unordered_map<u32, u32> fields_;     // field declaration offset to its declaration index
     std::unordered_map<const FunItem*, const TypeDeclItem*> owners_;  // a method's struct
@@ -1883,9 +1952,9 @@ private:
 
 }  // namespace
 
-Program lower(const File& file, const Resolution& resolution, ScalarTypes& types, const Interner& names,
-              const SourceManager& sources) {
-    return Lowerer(resolution, types, names, sources).run(file);
+Program lower(const File& file, const Resolution& resolution, ScalarTypes& types, const FlowFacts& flow,
+              const Interner& names, const SourceManager& sources) {
+    return Lowerer(resolution, types, flow, names, sources).run(file);
 }
 
 }  // namespace phs::mir

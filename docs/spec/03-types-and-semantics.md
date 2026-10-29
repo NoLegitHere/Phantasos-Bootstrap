@@ -154,7 +154,8 @@ the fields that were already initialized are destroyed.
   is not an optional, or is `none` itself, is `E0404`.
 - `opt?.member` reads a field or calls a method of the value inside `opt`.
   When `opt` is `none`, the result is `none` and the call's arguments are
-  not evaluated. The result is the member's type made optional, unless it is
+  not evaluated, so for initialization (3.24) and moves (3.30) they run on
+  only some paths. The result is the member's type made optional, unless it is
   optional already, in which case it is not wrapped again. A method whose
   result is `Unit` or `Never` gives `Unit`. Each step of a chain needs its
   own `?.`: in `a?.b?.c`, the second `?.` reads `c` from the optional `a?.b`.

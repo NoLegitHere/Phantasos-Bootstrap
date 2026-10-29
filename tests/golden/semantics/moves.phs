@@ -90,3 +90,12 @@ fun fine(c: Bool): String {
     let t = a
     return t
 }
+
+struct Eater(let n: Int) {
+    fun eat(s: own String): Int = 1
+}
+
+fun chained(p: Eater?, s: own String) {
+    let r = p?.eat(s)
+    take(s)
+}

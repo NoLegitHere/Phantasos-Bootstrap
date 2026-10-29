@@ -88,3 +88,12 @@ moves.phs:75:23: note: moved here
 moves.phs:74:9: note: declared here with type 'String', which is not Copy
    74 |     let a = "a"
       |         ^
+moves.phs:100:10: error[E0504]: 's' is used after it may have been moved
+  100 |     take(s)
+      |          ^
+moves.phs:99:20: note: moved here
+   99 |     let r = p?.eat(s)
+      |                    ^
+moves.phs:98:24: note: declared here with type 'String', which is not Copy
+   98 | fun chained(p: Eater?, s: own String) {
+      |                        ^

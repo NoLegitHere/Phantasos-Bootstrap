@@ -266,7 +266,7 @@ public:
 
 private:
     struct Local {
-        const VarStmt* decl;
+        const VarStmt* decl;  // null for a `let` condition's binding
         usize tracked;  // bit index, or kUntracked for locals with an initializer
         Span declared;  // the name, which is one of decl->names when destructuring
         usize movable;  // bit index among the bindings that can be moved
@@ -418,6 +418,7 @@ private:
             case BindingKind::Local: {
                 const auto* found = local(id);
                 if (!found) return {Access::Immutable, subject, binding.name.span, "bound here"};
+                if (!found->decl) return {Access::Immutable, subject, found->declared, "bound by a 'let' condition here"};
                 if (found->decl->binding == Binding::Var) return {Access::Mutable};
                 return {Access::Immutable, subject, found->declared, "declared with 'let' here"};
             }
@@ -866,13 +867,19 @@ private:
         defers_.clear();
         tracked_ = 0;
         movables_ = 0;
-        each_stmt(body, [&](const Stmt& stmt) {
+        const auto condition = [&](const Cond& cond) {
+            if (cond.is_let) locals_.emplace(cond.name.span.lo, Local{nullptr, kUntracked, cond.name.span, movables_++});
+        };
+        each_node(body, false, [&](const Stmt& stmt) {
             if (const auto* var = as<VarStmt>(&stmt); var && var->names.empty())
                 locals_.emplace(var->name.span.lo,
                                 Local{var, var->init ? kUntracked : tracked_++, var->name.span, movables_++});
             else if (var)
                 for (const Name& name : var->names)
                     locals_.emplace(name.span.lo, Local{var, kUntracked, name.span, movables_++});
+            else if (const auto* loop = as<WhileStmt>(&stmt)) condition(loop->cond);
+        }, [&](const Expr& expr) {
+            if (const auto* branch = as<IfExpr>(&expr)) condition(branch->cond);
         });
     }
 
@@ -1345,9 +1352,9 @@ private:
                 if (!found) { immutable(name, binding.name.span, "bound here; only 'var' locals can be reassigned"); return; }
                 // Assigning a moved local gives it a value again.
                 unmove(found->movable, state);
-                const bool mutable_local = found->decl->binding == Binding::Var;
+                const bool mutable_local = found->decl && found->decl->binding == Binding::Var;
                 if (found->tracked == kUntracked) {
-                    if (!mutable_local) immutable(name, found->declared, "declared with 'let' here");
+                    if (!mutable_local) immutable(name, found->declared, found->decl ? "declared with 'let' here" : "bound by a 'let' condition here");
                     return;
                 }
                 if (!mutable_local && state.live && state.maybe.test(found->tracked)) {
@@ -1532,7 +1539,7 @@ private:
         } else {
             State out = dead();
             for (const auto* branch = cast<IfExpr>(&expr); branch;) {
-                eval(branch->cond.expr, state);
+                condition(branch->cond, state);
                 State then = state;
                 control_flow(*branch->then_block, then);
                 merge(out, then);
@@ -1625,10 +1632,18 @@ private:
         merge(caught_.back().state, exit);
     }
 
+    // A `let` condition takes the optional's value, like a `let` initializer,
+    // and binds it anew each time it runs.
+    void condition(const Cond& cond, State& state) {
+        if (cond.is_let) consume(cond.expr);
+        eval(cond.expr, state);
+        if (const auto it = locals_.find(cond.name.span.lo); cond.is_let && it != locals_.end()) unmove(it->second.movable, state);
+    }
+
     // One pass over a loop from its head; back receives the states that
     // return to the head, and the result is the state after the loop.
     State iteration(const Cond* cond, const BlockExpr* body, State& state, bool exits_normally, State& back) {
-        if (cond) eval(cond->expr, state);
+        if (cond) condition(*cond, state);
         breaks_.push_back(dead());
         continues_.push_back(dead());
         loops_.push_back(defers_.size());

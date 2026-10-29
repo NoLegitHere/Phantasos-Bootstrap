@@ -140,6 +140,25 @@ the fields that were already initialized are destroyed.
 - The ways to use an optional are `if let x = opt`, `opt?.member`,
   `opt ?? fallback`, `match`, and `opt!`. `opt!` panics with a source
   location if the value is `none`.
+- `if let x = opt` and `while let x = opt` run their body when `opt` holds a
+  value, with `x` bound to that value, one optional level down. An
+  annotation names that inner type: `if let x: Int = opt` needs `opt: Int?`.
+  The binding is immutable. A `let` condition whose value is not an optional,
+  or is `none` itself, is `E0404`.
+- `opt ?? fallback` is the value inside `opt`, or `fallback` when `opt` is
+  `none`. The fallback has that inner type, or `opt`'s own type, in which
+  case the result is still optional: `a ?? b ?? 0` tries `a`, then `b`. A
+  `none` fallback takes the inner type when that is optional, and `opt`'s
+  type otherwise. A branching fallback (`if`, a block) takes the inner type
+  when every branch fits it, and `opt`'s type otherwise. A left operand that
+  is not an optional, or is `none` itself, is `E0404`.
+- `==` and `!=` compare an optional with `none`, with a value of its inner
+  type (which lifts), or with another optional of the same type. Stage0
+  checks this when the inner type is a built-in scalar or `String`; for
+  tuples, structs and other composites the comparison stays deferred, and
+  neither operand takes the other's type.
+- `none` takes the optional type it fills: the expected type, or the other
+  operand's type in a comparison.
 - **Smart casts.** After `if x is Circle`, the name `x` has type `Circle`
   inside the branch, as long as `x` is an immutable binding.
 
@@ -459,8 +478,8 @@ permit numeric conversions between different underlying built-ins. Calls prefer
 fewer optional lifts after numeric literal preferences. Checked results cannot
 be used as ordinary numeric values: unwrap a known optional with `!` before
 numeric use. Unwrapping retains its element type; runtime failure handling is
-defined in section 3.6. None inference, conditional bindings, optional equality,
-coalescing and other optional operations remain later checks.
+defined in section 3.6, which also covers `none`, `let` conditions, `??`
+and optional equality. Optional chaining (`?.`) remains a later check.
 
 Integer/floating interchange and floating narrowing remain explicitly deferred
 until their rounding and failure policies are specified. Pending source types
@@ -1350,8 +1369,8 @@ decides `Copy` structurally (3.29), so values of unknown types never move.
 
 An expression is consumed when it is:
 
-- the initializer of a `let` or `var` (local, global or field), or the
-  value of a plain assignment;
+- the initializer of a `let` or `var` (local, global or field), the value of
+  a `let` condition (`if let x = opt`), or the value of a plain assignment;
 - the value of a `return`, the expression body of a function with a
   result (declared or inferred), or the last expression of a closure body;
 - an argument for an `own` parameter, or for a stored field of a primary

@@ -100,6 +100,8 @@ struct Declaration {
     // A closure parameter, whose type may come from the closure's expected type.
     const ClosureExpr* closure = nullptr;
     u32 parameter = 0;
+    // `if let x = opt` and `while let`: the binding holds the value inside init.
+    bool unwrap = false;
 };
 // One edge of the inference graph; a node's edges form a list in insertion order.
 struct Dependency {
@@ -2338,12 +2340,13 @@ private:
     Value value(const Expr* expr) const {
         return expr ? nodes_[expressions_.at(expr)].value : Value{Type::Unit};
     }
-    void declare(Name name, const TypeExpr* type, const Expr* init) {
+    void declare(Name name, const TypeExpr* type, const Expr* init, bool unwrap = false) {
         const auto head = declarations_.find(name.span.lo);
         for (u32 i = head == declarations_.end() ? kNoDeclaration : head->second; i != kNoDeclaration; i = declaration_next_[i]) {
             auto& declared = declaration(i);
             declared.annotation = type;
             declared.init = init;
+            declared.unwrap = unwrap;
         }
     }
     void destructure(const VarStmt& var) {
@@ -2370,8 +2373,8 @@ private:
     }
     void condition(const Cond& cond, Returns returns) {
         push(cond.expr, returns);
-        if (!cond.is_let) requirements_.push_back({cond.expr, Type::Bool, cond.span});
-        // Conditional optional bindings are deferred along with optional types.
+        if (cond.is_let) declare(cond.name, cond.type, cond.expr, true);
+        else requirements_.push_back({cond.expr, Type::Bool, cond.span});
     }
 
     void collect(const Item& item, Returns, bool) {
@@ -3173,6 +3176,14 @@ private:
             diag_.error(DiagCode::ScalarTypeMismatch, span, "expected '{}', found 'none'", scalar_type_name(expected));
             return {Type::Error};
         }
+        if (known(expected) && expected.optional_depth && none_literal(nodes_[index].expr)) {
+            // `none` takes the optional type it fills, through any parentheses.
+            for (const Expr* expr = nodes_[index].expr;; expr = cast<ParenExpr>(expr)->inner) {
+                nodes_[expressions_.at(expr)].value = {expected};
+                if (expr->kind != ExprKind::Paren) break;
+            }
+            return {expected};
+        }
         if (const auto* tuple = as<TupleExpr>(unparen(nodes_[index].expr)); tuple && expected.kind == Type::Tuple) {
             const usize arity = types_.descriptor(expected)->parameters.size();
             if (arity == tuple->elems.size()) {
@@ -3343,6 +3354,39 @@ private:
         }
         return result;
     }
+    static bool none_literal(const Expr* expr) {
+        while (const auto* paren = as<ParenExpr>(expr)) expr = paren->inner;
+        return expr && expr->kind == ExprKind::None;
+    }
+    // `if let x = opt` binds the value inside an optional; an annotation
+    // names that inner type (3.6).
+    Value unwrapped(const Declaration& declaration) {
+        const Expr* init = declaration.init;
+        const Value initial = value(init);
+        if (initial.type == Type::Error) return initial;
+        if (none_literal(init)) {
+            diag_.error(DiagCode::NotOptional, init->span, "'let' condition needs an optional value; 'none' never holds one");
+            return {Type::Error};
+        }
+        if (initial.literal != Literal::None ||
+            (known(initial.type) && !initial.type.optional_depth && initial.type != Type::Never)) {
+            diag_.error(DiagCode::NotOptional, init->span, "'let' condition needs an optional value, found '{}'",
+                        scalar_type_name(default_type(initial)));
+            if (initial.literal != Literal::None) materialize(expressions_.at(init), default_type(initial));
+            return {Type::Error};
+        }
+        if (initial.type == Type::Never) return initial;
+        if (declaration.annotation) {
+            // The annotation gives a pending initializer, such as an `if`, its context.
+            const Type declared = annotation(declaration.annotation);
+            if (!known(declared)) return {declared == Type::Error ? Type::Error : Type::Deferred};
+            const auto checked = require(init, declared.optional(), init->span);
+            return {checked.type == Type::Error ? Type::Error : declared};
+        }
+        if (!known(initial.type) || !initial.type.optional_depth) return {};
+        return {initial.type.element()};
+    }
+
     Value require(const Expr* expr, Type expected, Span span) {
         if (expr && known(expected) && branching(expr)) return require_branches(branching(expr), expected);
         if (expr) return compatible(expressions_.at(expr), expected, span);
@@ -3487,7 +3531,10 @@ private:
             if (composite(rhs)) rhs = materialize(expressions_.at(expr.rhs), rhs.type);
         }
         if (lhs.type == Type::Error || rhs.type == Type::Error) return {Type::Error};
-        if (expr.op == BinOp::Coalesce || expr.op == BinOp::Range || expr.op == BinOp::RangeExcl) return {};
+        if (expr.op == BinOp::Coalesce) return coalesce(expr, lhs);
+        if (expr.op == BinOp::Range || expr.op == BinOp::RangeExcl) return {};
+        if (equality && (lhs.type.optional_depth || rhs.type.optional_depth || none_literal(expr.lhs) || none_literal(expr.rhs)))
+            return optional_equality(expr, lhs, rhs);
         if (tuples || (equality && (lhs.type.optional_depth || rhs.type.optional_depth || lhs.type.kind >= Type::Nominal ||
                                     rhs.type.kind >= Type::Nominal || lhs.literal == Literal::Array || rhs.literal == Literal::Array))) return {};
         const bool ints = expr.op == BinOp::Rem || expr.op == BinOp::WrapAdd || expr.op == BinOp::WrapSub ||
@@ -3527,6 +3574,67 @@ private:
             return {Type::Bool};
         }
         return lhs;
+    }
+
+    // `opt ?? fallback`: the value inside opt, or fallback, which has that
+    // type or opt's own (3.6).
+    Value coalesce(const BinaryExpr& expr, Value lhs) {
+        if (none_literal(expr.lhs) || lhs.literal != Literal::None ||
+            (known(lhs.type) && !lhs.type.optional_depth && lhs.type != Type::Never)) {
+            diag_.error(DiagCode::NotOptional, expr.lhs->span, "'?\?' needs an optional on its left, found '{}'",
+                        none_literal(expr.lhs) ? std::string("none") : scalar_type_name(default_type(lhs)));
+            if (lhs.literal != Literal::None) materialize(expressions_.at(expr.lhs), default_type(lhs));
+            value(expr.rhs);
+            return {Type::Error};
+        }
+        if (!known(lhs.type)) return {};
+        const Type inner = lhs.type == Type::Never ? Type::Never : lhs.type.element();
+        if (inner == Type::Never) {
+            const auto rhs = value(expr.rhs);
+            if (rhs.literal != Literal::None) return materialize(expressions_.at(expr.rhs), default_type(rhs));
+            return rhs;
+        }
+        // A fallback of the same optional type chains: `a ?? b` is then optional too.
+        if (const auto fallback = value(expr.rhs); fallback.literal == Literal::None && fallback.type == lhs.type) return {lhs.type};
+        if (none_literal(expr.rhs)) {
+            // `none` fills the inner type when that is optional, else opt's own.
+            const Type target = inner.optional_depth ? inner : lhs.type;
+            const auto fallback = require(expr.rhs, target, expr.rhs->span);
+            return fallback.type == Type::Error ? fallback : Value{target};
+        }
+        if (branching(expr.rhs)) {
+            // Branches are checked through their tails: the inner type when they
+            // all fit it, else opt's own optional type.
+            const auto plain = probe(expressions_.at(expr.rhs), inner);
+            if (plain.deferred) return {};
+            if (!plain.matches) {
+                const auto chained = probe(expressions_.at(expr.rhs), lhs.type);
+                if (chained.deferred) return {};
+                if (chained.matches) {
+                    const auto fallback = require(expr.rhs, lhs.type, expr.rhs->span);
+                    return fallback.type == Type::Error ? fallback : Value{lhs.type};
+                }
+            }
+        }
+        const auto rhs = require(expr.rhs, inner, expr.rhs->span);
+        if (rhs.type == Type::Error) return rhs;
+        if (unavailable(rhs)) return {};
+        return {inner};
+    }
+    // `==` and `!=` with an optional: a non-optional side or `none` takes the
+    // optional's type, and the values inside must be comparable scalars.
+    Value optional_equality(const BinaryExpr& expr, Value lhs, Value rhs) {
+        const bool left = lhs.type.optional_depth >= rhs.type.optional_depth && known(lhs.type) && !none_literal(expr.lhs);
+        const Value& wide = left ? lhs : rhs;
+        const Expr* other = left ? expr.rhs : expr.lhs;
+        if (!known(wide.type) || !wide.type.optional_depth) return {};
+        // Composite equality stays deferred (3.28), so only scalar optionals impose a type.
+        const auto inner = wide.type.scalar();
+        if (inner.kind < Type::Int8 || inner.kind > Type::Unit) return {};
+        const auto narrowed = require(other, wide.type, other->span);
+        if (narrowed.type == Type::Error) return narrowed;
+        if (unavailable(narrowed) && !none_literal(other)) return {};
+        return {Type::Bool};
     }
 
     bool fits_literal_tree(usize root, Type type) const {
@@ -3575,6 +3683,8 @@ private:
                 continue;
             }
             if (none_mismatch(index, target)) { result.matches = false; continue; }
+            // `none` fits any optional (3.6).
+            if (none_literal(nodes_[index].expr) && known(target) && target.optional_depth) continue;
             if (const auto* tuple = as<TupleExpr>(unparen(nodes_[index].expr)); tuple && target.kind == Type::Tuple) {
                 const auto& elements = types_.descriptor(target)->parameters;
                 if (elements.size() != tuple->elems.size()) { result.matches = false; continue; }
@@ -4295,6 +4405,10 @@ private:
             else if (whole.kind == Type::Tuple && !whole.optional_depth) node.value = {types_.descriptor(whole)->parameters.at(declaration.element)};
             return;
         }
+        if (!expr && declaration.unwrap) {
+            node.value = unwrapped(declaration);
+            return;
+        }
         if (!expr) {
             const Type declared = annotation(declaration.annotation);
             Value initial = declaration.init ? value(declaration.init) : Value{};
@@ -4595,7 +4709,8 @@ private:
                 if (!known(nodes_[n].value.type)) pending.push_back(binding.name.span);
                 const auto declaration = declared(n);
                 if (declaration.init && (unavailable(value(declaration.init)) ||
-                    (declaration.annotation && probe(expressions_.at(declaration.init), annotation(declaration.annotation)).deferred))) pending.push_back(declaration.init->span);
+                    (declaration.annotation && probe(expressions_.at(declaration.init), declaration.unwrap ? annotation(declaration.annotation).optional()
+                                                                                                           : annotation(declaration.annotation)).deferred))) pending.push_back(declaration.init->span);
             }
         }
         for (usize id = 0; id < resolution_.bindings().size(); ++id) {

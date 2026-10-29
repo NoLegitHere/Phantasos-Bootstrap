@@ -1,0 +1,33 @@
+array_errors.phs:31:23: error[E0450]: type '[Int]' has no member 'size'
+   31 |     let size = values.size
+      |                       ^^^^
+array_errors.phs:32:18: error[E0410]: value of type 'Int' is not callable
+   32 |     let called = values.count()
+      |                  ^^^^^^^^^^^^
+array_errors.phs:33:26: error[E0450]: type '[Int]' has no member 'size'
+   33 |     let chained = maybe?.size
+      |                          ^^^^
+array_errors.phs:34:25: error[E0450]: array method 'append' can only be called
+   34 |     let method = values.append
+      |                         ^^^^^^
+array_errors.phs:36:17: error[E0400]: expected 'Int', found 'String'
+   36 |     copy.append("one")
+      |                 ^^^^^
+array_errors.phs:37:5: error[E0411]: 'append' takes one argument of type 'Int'
+   37 |     copy.append(1, 2)
+      |     ^^^^^^^^^^^^^^^^^
+array_errors.phs:38:16: error[E0411]: 'removeLast' takes no arguments
+   38 |     let last = copy.removeLast(0)
+      |                ^^^^^^^^^^^^^^^^^^
+array_errors.phs:39:14: error[E0405]: 'for' needs an array or a range, found 'Int'
+   39 |     for i in n {}
+      |              ^
+array_errors.phs:40:14: error[E0405]: 'for' needs an array or a range, found '[Int]?'
+   40 |     for i in maybe {}
+      |              ^^^^^
+array_errors.phs:41:14: error[E0401]: operator requires integer operands
+   41 |     for i in 0..<"ten" {}
+      |              ^^^^^^^^^
+array_errors.phs:42:17: error[E0406]: a range can only be the subject of a 'for' loop
+   42 |     let range = 0..<n
+      |                 ^^^^^

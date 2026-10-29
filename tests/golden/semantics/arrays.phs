@@ -1,0 +1,73 @@
+// Copyright 2026 The Phantasos Authors
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Arrays and flow (3.33): `append` and `removeLast` need a mutable array, a
+// `for` binding borrows each element, and `append` moves its argument.
+
+struct Bag(var items: [String])
+
+class Cell {
+    var n: Int = 0
+    mut fun bump() { n += 1 }
+}
+
+fun take(s: own String) {}
+
+fun mutability(values: [Int], bag: Bag) {
+    let fixed = [1, 2]
+    fixed.append(3)
+    let last = fixed.removeLast()
+    values.append(1)
+    bag.items.append("x")
+    [1].append(2)
+    var owned = Bag([])
+    owned.items.append("fine")
+    owned.items.count = 0
+}
+
+fun chained(maybe: [Int]?, held: inout [Int]?): Int? {
+    maybe?.append(1)
+    held?.append(1)
+    return held?.removeLast() ?? maybe?.count
+}
+
+fun elements(words: [String]) {
+    for word in words { take(word) }
+    for word in words { take(word.clone()) }
+    for word in words { word = "x" }
+    for word in words { let f = { -> word.clone() } }
+    for i in 0..<words.count { take(words[i]) }
+}
+
+fun cells(all: [Cell]) {
+    for cell in all { cell.bump() }
+    for cell in all { cell.n = 1 }
+}
+
+fun moves() {
+    var kept: [String] = []
+    let s = "s"
+    kept.append(s)
+    take(s)
+}
+
+// Array methods never throw, so `try?` adds no path that skips the assignment.
+fun initialized(values: inout [Int]): Int {
+    var x: Int
+    let ignored = try? unsafe { values.append(1)
+        x = 1
+        0 }
+    return x
+}

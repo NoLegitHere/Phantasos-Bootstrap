@@ -419,6 +419,9 @@ private:
             return {Access::Immutable, "captured " + subject, binding.name.span, "a closure captures a read-only copy of it"};
         switch (binding.kind) {
             case BindingKind::Local: {
+                // Like a borrowed parameter, a loop element cannot be changed through (3.33).
+                if (loop_elements_.contains(binding.name.span.lo))
+                    return {Access::ReadOnly, subject, binding.name.span, "a 'for' binding borrows each element"};
                 const auto* found = local(id);
                 if (!found) return {Access::Immutable, subject, binding.name.span, "bound here"};
                 if (!found->decl) return {Access::Immutable, subject, found->declared, "bound by a 'let' condition here"};
@@ -471,6 +474,8 @@ private:
         for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
             const auto* member = as<MemberExpr>(*it);
             if (!member) continue;
+            // A built-in array property is computed, never stored (3.33).
+            if (types_.array_member(member)) return {Access::Temporary, "a temporary value"};
             const auto* record = types_.member(member);
             if (!record || record->state != ResolutionState::Resolved || record->candidates.size() != 1 ||
                 resolution_.binding(record->candidates.front()).kind != BindingKind::Field)
@@ -498,6 +503,10 @@ private:
         const auto* tuple = as<TupleFieldExpr>(inner);
         const bool element = inner->kind == ExprKind::Index, unwrapped = inner->kind == ExprKind::Unwrap;
         if (!member && !element && !unwrapped && !tuple && inner->kind != ExprKind::SelfValue) return;
+        if (member && types_.array_member(member)) {
+            restricted(target.span, std::format("cannot assign to '{}', which an array computes", names_.str(member->name.sym)), {});
+            return;
+        }
         const Place found = place(inner);
         if (found.access == Access::Unknown || found.access == Access::Mutable) return;
         if (element || unwrapped || tuple) {
@@ -734,6 +743,10 @@ private:
     // and anything but a borrow for class instances.
     void mutating_call(const CallExpr& call) {
         const auto* checked = types_.call(&call);
+        if (checked && checked->state == CallState::Resolved && checked->kind == CallKind::Array) {
+            mutating_array_call(call, *checked);
+            return;
+        }
         if (!checked || checked->state != CallState::Resolved ||
             (checked->kind != CallKind::Method && checked->kind != CallKind::Function))
             return;
@@ -762,6 +775,20 @@ private:
             restricted(call.callee->span, std::format("cannot call 'mut fun {}' on a temporary value", name), found);
         else
             restricted(call.callee->span, std::format("cannot call 'mut fun {}' because {} is {}", name, found.subject,
+                                                      describe(found.access)), found);
+    }
+
+    // `append` and `removeLast` change the array, which must be mutable (3.33).
+    void mutating_array_call(const CallExpr& call, const CheckedCall& checked) {
+        if (checked.array != ArrayMember::Append && checked.array != ArrayMember::RemoveLast) return;
+        // An array is a value, so the whole place it is stored in must be mutable.
+        const Place found = place(checked.receiver);
+        if (found.access != Access::ReadOnly && found.access != Access::Immutable && found.access != Access::Temporary) return;
+        const auto name = checked.array == ArrayMember::Append ? "append" : "removeLast";
+        if (found.access == Access::Temporary)
+            restricted(call.callee->span, std::format("cannot call '{}' on a temporary array", name), found);
+        else
+            restricted(call.callee->span, std::format("cannot call '{}' because {} is {}", name, found.subject,
                                                       describe(found.access)), found);
     }
 
@@ -1052,6 +1079,10 @@ private:
                     fix = closure_params_.contains(binding.name.span.lo) || inout
                               ? "use '" + spelled + ".clone()' to move a copy"
                               : "declare it 'own' to take ownership, or use '" + spelled + ".clone()' to move a copy";
+                } else if (binding.kind == BindingKind::Local && loop_elements_.contains(binding.name.span.lo)) {
+                    // `for x in a` borrows each element of a (3.33).
+                    subject = "loop element '" + spelled + "'";
+                    fix = "use '" + spelled + ".clone()' to move a copy";
                 } else {
                     return false;
                 }
@@ -1112,6 +1143,10 @@ private:
     // primary constructor.
     void consume_arguments(const CallExpr& call) {
         const auto* checked = types_.call(&call);
+        // `a.append(x)` moves x into the array.
+        if (checked && checked->state == CallState::Resolved && checked->kind == CallKind::Array &&
+            checked->array == ArrayMember::Append && !call.args.empty())
+            consume(call.args[0].value);
         if (!checked || checked->state != CallState::Resolved || !checked->target.valid()) return;
         const Item* item = resolution_.binding(checked->target).item;
         if (!item) return;
@@ -1151,6 +1186,13 @@ private:
                 borrow_error(capture.use, "captured '" + std::string(name) + "'",
                              "a closure can be called more than once; capture a copy made with '" + std::string(name) +
                                  ".clone()' instead");
+            // A loop element is borrowed from its array, so it cannot move into the closure (3.33).
+            if (state.live && binding.kind == BindingKind::Local && loop_elements_.contains(binding.name.span.lo) &&
+                !copyable(types_.binding(capture.binding), true)) {
+                invalid_captures_.insert(capture.binding.value);
+                borrow_error(capture.use, "loop element '" + std::string(name) + "'",
+                             "capture a copy made with '" + std::string(name) + ".clone()' instead");
+            }
             if (const auto* found = local(capture.binding)) {
                 if (found->tracked != kUntracked && state.live && !state.assigned.test(found->tracked)) {
                     auto& d = error(DiagCode::UninitializedUse, capture.use, "'{}' is captured before it is initialized", name);
@@ -1443,7 +1485,8 @@ private:
         switch (checked->kind) {
             case CallKind::NumericConversion:
             case CallKind::Builtin:
-            case CallKind::Clone: return false;
+            case CallKind::Clone:
+            case CallKind::Array: return false;
             case CallKind::IndirectFunction: {
                 const auto* function = types_.descriptor(types_.expression(call.callee));
                 return !function || function->throws;
@@ -1736,6 +1779,7 @@ private:
             }
             case StmtKind::For: {
                 const auto& loop_stmt = *cast<ForStmt>(&stmt);
+                loop_elements_.insert(loop_stmt.var.span.lo);
                 eval(loop_stmt.iter, state);
                 loop(nullptr, loop_stmt.body, state, true);
                 break;
@@ -1820,6 +1864,7 @@ private:
     const ClosureExpr* closure_ = nullptr;  // the closure whose body is being checked
     FlatSet<usize> invalid_captures_;      // bindings a closure of this callable cannot capture (E0503)
     FlatSet<u32> reported_borrows_;        // E0505 spans, which loops and cleanups can reach more than once
+    FlatSet<u32> loop_elements_;           // `for` bindings, which borrow array elements
     FlatSet<u32> reported_exclusive_;      // E0506 spans, likewise
     std::vector<const DeferStmt*> defers_;  // cleanups of the enclosing scopes, innermost last
     std::vector<usize> scopes_;             // defers_ size where each enclosing block starts

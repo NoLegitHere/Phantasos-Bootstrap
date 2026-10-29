@@ -659,6 +659,17 @@ void wide_matches_and_long_chains() {
     Frontend f;
     f.check(wide, {}, false);
 
+    // Each outer case's payload column lists the inner cases once.
+    std::string nested = "enum Inner {\n";
+    for (int i = 0; i < 3000; ++i) nested += "    x" + std::to_string(i) + "\n";
+    nested += "}\nenum Outer {\n";
+    for (int i = 0; i < 3000; ++i) nested += "    c" + std::to_string(i) + "(Inner)\n";
+    nested += "}\nfun f(o: Outer): Int {\n    return match o {\n";
+    for (int i = 0; i < 3000; ++i) nested += "        .c" + std::to_string(i) + "(_) -> 0\n";
+    nested += "    }\n}\n";
+    Frontend inner;
+    inner.check(nested, {}, false);
+
     // Each case meets every guarded `_` arm before it.
     std::string complex = "enum E {\n";
     for (int i = 0; i < 2000; ++i) complex += "    c" + std::to_string(i) + "(Int)\n";

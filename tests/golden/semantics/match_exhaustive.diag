@@ -34,3 +34,6 @@ match_exhaustive.phs:140:18: error[E0407]: 'match' does not cover every 'Partial
 match_exhaustive.phs:146:9: warning[E0408]: this arm never runs: no value it matches gets past the arms before it
   146 |         .dead(_) if false -> 0
       |         ^^^^^^^^
+match_exhaustive.phs:164:18: error[E0407]: 'match' does not cover every 'Shape'; add a '_' arm
+  164 |     return match s { is Circle -> 1 }
+      |                  ^

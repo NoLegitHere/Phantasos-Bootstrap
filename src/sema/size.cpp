@@ -43,12 +43,11 @@ public:
     }
 
 private:
-    // A declaration reached again inside itself with larger type arguments
+    // A declaration reached again inside itself with deeper type arguments
     // this many times is taken to grow without end, and no program holds
     // this many types inline.
     static constexpr u32 kGrowth = 256;
     static constexpr usize kTypes = 1'000'000;
-    static constexpr usize kLarge = usize{1} << 40;
     bool value_type(BindingId id) const {
         const auto& binding = resolution_.binding(id);
         return binding.kind == BindingKind::Type && binding.item && binding.members.valid() &&
@@ -107,7 +106,7 @@ private:
         Type type;
         BindingId declaration;
         std::vector<Part> parts;
-        usize size = 0;
+        usize height = 0;
         u32 growth = 0;  // times its declaration grew on the way here
         u32 index = 0, low = 0;
         bool active = false;  // on the component stack
@@ -116,28 +115,30 @@ private:
         const u32 id = static_cast<u32>(nodes_.size());
         ids_.emplace(type.detail, id);
         auto parts_of = parts(type);
-        nodes_.push_back({type, declaration(type), std::move(parts_of), term_size(type), growth, id, id, true});
+        nodes_.push_back({type, declaration(type), std::move(parts_of), term_height(type), growth, id, id, true});
         components_.push_back(id);
         walking_[nodes_.back().declaration.value].push_back(id);
         return id;
     }
     // How often a declaration has grown on the walk down to `type`: the
     // nearest enclosing type of the same declaration, plus one if `type` is
-    // larger. A chain that only shrinks, like `Box<Box<Int>>`, never grows.
+    // deeper. A chain that only shrinks, like `Box<Box<Int>>`, never grows,
+    // while one that wraps its arguments, like `Grow<Box<T>>`, grows by one
+    // each time.
     u32 growth(Type type, BindingId declaration) {
         const auto& enclosing = walking_[declaration.value];
         if (enclosing.empty()) return 0;
         const Node& outer = nodes_[enclosing.back()];
-        return outer.growth + (term_size(type) > outer.size ? 1 : 0);
+        return outer.growth + (term_height(type) > outer.height ? 1 : 0);
     }
-    // The number of type constructors in a type, up to kLarge.
-    usize term_size(Type root) {
+    // How deeply type constructors nest in a type.
+    usize term_height(Type root) {
         std::vector<std::pair<Type, bool>> work{{root.scalar(), false}};
         while (!work.empty()) {
             const auto [type, children_done] = work.back();
             work.pop_back();
             const auto* descriptor = types_.descriptor(type);
-            if (!descriptor || (!children_done && sizes_.contains(type.detail))) continue;
+            if (!descriptor || (!children_done && heights_.contains(type.detail))) continue;
             std::vector<Type> children = descriptor->parameters;
             children.insert(children.end(), descriptor->arguments.begin(), descriptor->arguments.end());
             for (const Type child : {descriptor->element, descriptor->result, descriptor->error})
@@ -147,15 +148,15 @@ private:
                 for (const Type child : children) work.push_back({child.scalar(), false});
                 continue;
             }
-            usize total = 1;
+            usize height = 0;
             for (const Type child : children) {
-                const auto known = sizes_.find(child.scalar().detail);
-                total += child.optional_depth + (known == sizes_.end() ? 1 : known->second);
+                const auto known = heights_.find(child.scalar().detail);
+                height = std::max<usize>(height, child.optional_depth + (known == heights_.end() ? 1 : known->second));
             }
-            sizes_[type.detail] = std::min(total, kLarge);
+            heights_[type.detail] = height + 1;
         }
-        const auto known = sizes_.find(root.scalar().detail);
-        return std::min(root.optional_depth + (known == sizes_.end() ? 1 : known->second), kLarge);
+        const auto known = heights_.find(root.scalar().detail);
+        return root.optional_depth + (known == heights_.end() ? 1 : known->second);
     }
 
     void visit(Type start) {
@@ -237,7 +238,7 @@ private:
     std::unordered_map<usize, u32> ids_;  // by type
     std::vector<u32> components_;
     std::unordered_map<usize, std::vector<u32>> walking_;  // by declaration, its types on the walk's stack
-    std::unordered_map<usize, usize> sizes_;  // by type
+    std::unordered_map<usize, usize> heights_;  // by type
     std::unordered_set<usize> reported_;
 };
 }  // namespace

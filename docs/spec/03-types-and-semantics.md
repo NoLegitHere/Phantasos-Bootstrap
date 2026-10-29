@@ -1635,6 +1635,10 @@ and `.pair(_, false)` together cover `.pair`.
 - Integers, floats, characters and strings have too many values to list,
   so a `match` on them needs a `_` or binding arm.
 - An arm with a guard covers nothing, since its guard may be false.
+- `is T` covers the matched type when every value passes the test: `T`
+  is that type or a class it inherits from. Against an optional, such a
+  test covers the present values. Other `is` tests cover nothing on their
+  own.
 - A case whose payload no value has, such as one holding an enum without
   cases or `Never`, needs no arm, and neither does the present value of
   an optional of such a type. A `match` on a type no value has, such as

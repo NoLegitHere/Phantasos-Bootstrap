@@ -147,3 +147,19 @@ fun impossible(x: Dead): Int {
         .live -> 1
     }
 }
+
+// An `is` test every value passes covers its type; others cover nothing.
+open class Shape {}
+class Circle: Shape {}
+
+fun tests(c: Circle, s: Shape, o: Circle?): Int {
+    let a = match c { is Shape -> 1 }
+    let b = match c { is Circle -> 1 }
+    let d = match s { is Circle -> 1, _ -> 2 }
+    let e = match o { is Circle -> 1, none -> 2 }
+    return a + b + d + e
+}
+
+fun missingTest(s: Shape): Int {
+    return match s { is Circle -> 1 }
+}

@@ -24,6 +24,7 @@ struct Paired(inner: (Paired, Int))
 struct Box<T>(value: T)
 struct Looped<T>(inner: Box<Looped<T>>)
 struct Grow<T>(inner: Grow<Box<T>>)
+struct Doubling<T>(inner: Doubling<(T, T)>)
 // Each branch grows its own way.
 struct Branching<T>(a: Branching<[T]>, b: Branching<Box<T>>, c: Branching<(T, T)>)
 

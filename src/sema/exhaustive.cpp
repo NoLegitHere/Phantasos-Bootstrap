@@ -112,7 +112,22 @@ private:
         switch (pat.kind) {
             case PatKind::Wildcard: case PatKind::Binding: return 0;
             case PatKind::Literal: return literal(*cast<LiteralPat>(&pat)->literal, type);
-            case PatKind::Is: return add({Space::Literal, literal_key("is" + std::to_string(pat.span.lo))});
+            case PatKind::Is: {
+                // A test every value passes matches anything, and one every
+                // present value of an optional passes matches those.
+                const Type tested = types_.pattern_test(cast<IsPat>(&pat));
+                if (type == tested && known(type)) return 0;
+                if (!tested.optional_depth && passes(type.scalar(), tested)) {
+                    if (type.optional_depth > kDepth) {
+                        complex_ = true;
+                        return 0;
+                    }
+                    u32 result = 0;
+                    for (u32 i = 0; i < type.optional_depth; ++i) result = add({Space::Case, kSome, {result}});
+                    return result;
+                }
+                return add({Space::Literal, literal_key("is" + std::to_string(pat.span.lo))});
+            }
             case PatKind::Case: {
                 const auto& c = *cast<CasePat>(&pat);
                 const BindingId id = types_.pattern_case(&c);
@@ -132,6 +147,28 @@ private:
         }
         supported_ = false;
         return 0;
+    }
+    // Whether every value of `type` is a `tested`: the same type, or a class
+    // it inherits from.
+    static bool known(Type type) { return type.kind != Type::Deferred && type.kind != Type::Error; }
+    bool passes(Type type, Type tested) const {
+        if (type == tested && known(type)) return true;
+        if (type.optional_depth || tested.optional_depth || type.kind != Type::Nominal || tested.kind != Type::Nominal) return false;
+        const auto* target = types_.descriptor(tested);
+        if (!target->arguments.empty()) return false;
+        std::vector<BindingId> work{types_.descriptor(type)->declaration};
+        std::unordered_set<usize> seen;
+        while (!work.empty()) {
+            const BindingId id = work.back();
+            work.pop_back();
+            if (id == target->declaration) return true;
+            if (!seen.insert(id.value).second) continue;
+            if (const auto* hierarchy = types_.hierarchy(id)) {
+                if (hierarchy->superclass.valid()) work.push_back(hierarchy->superclass);
+                work.insert(work.end(), hierarchy->bases.begin(), hierarchy->bases.end());
+            }
+        }
+        return false;
     }
     u32 literal(const Expr& expr, Type type) {
         if (!type.optional_depth) return value(expr);
@@ -165,9 +202,21 @@ private:
 
     // The cases of an enum, `false` and `true`, or `none` and the rest of an
     // optional; empty for types whose values cannot be listed.
-    struct Constructors { bool finite = false; std::vector<u32> ctors; };
+    struct Constructors {
+        bool finite = false;
+        std::vector<u32> ctors;
+        std::unordered_set<u32> possible;  // the same cases, to look up
+    };
+    // Built once per type, since every column of that type needs them.
+    const Constructors& constructors(Type type) {
+        const u64 key = u64{type.kind} << 56 ^ u64{std::min<u32>(type.optional_depth, 2)} << 48 ^ (type.detail & 0xFFFF'FFFF'FFFF);
+        if (const auto known = constructors_.find(key); known != constructors_.end()) return known->second;
+        Constructors result = list_constructors(type);
+        result.possible.insert(result.ctors.begin(), result.ctors.end());
+        return constructors_.emplace(key, std::move(result)).first->second;
+    }
     // Cases with a payload no value has, such as an empty enum, need no arm.
-    Constructors constructors(Type type) {
+    Constructors list_constructors(Type type) {
         if (type.optional_depth) {
             if (inhabited(type.element())) return {true, {kNone, kSome}};
             return {true, {kNone}};
@@ -316,15 +365,14 @@ private:
             it->second.push_back(i);
         }
 
-        const auto listed = constructors(type);
+        const auto& listed = constructors(type);
         const auto has = [&](u32 ctor) { return starts.contains(u64{Space::Case} << 32 | ctor); };
-        // A case no value has matches nothing, whatever its arms say.
-        const std::unordered_set<u32> possible(listed.ctors.begin(), listed.ctors.end());
         std::optional<Witness> missing;
         for (const u32 id : heads) {
             if (complex_) return std::nullopt;
             const Space& head = spaces_[id];
-            if (head.kind == Space::Case && listed.finite && !possible.contains(head.ctor)) continue;
+            // A case no value has matches nothing, whatever its arms say.
+            if (head.kind == Space::Case && listed.finite && !listed.possible.contains(head.ctor)) continue;
             const auto parts = head.kind == Space::Case ? fields(head.ctor, type) : std::vector<Type>{};
             const auto& own = starts.at(u64{head.kind} << 32 | head.ctor);
             // Both lists are in row order; merge them to keep it.
@@ -368,7 +416,7 @@ private:
     }
     // A present value of an optional's type, by its first case if it has some.
     std::string any(Type type) {
-        const auto listed = constructors(type);
+        const auto& listed = constructors(type);
         if (!listed.finite || listed.ctors.empty() || listed.ctors.front() == kSome) return "_";
         Witness witness(fields(listed.ctors.front(), type).size(), "_");
         rebuild(witness, listed.ctors.front(), witness.size());
@@ -384,6 +432,7 @@ private:
     bool supported_ = true;
     std::vector<bool> reached_;  // by arm
     std::unordered_map<usize, bool> inhabited_;  // by type
+    std::unordered_map<u64, Constructors> constructors_;  // by type and optional depth up to 2
     bool complex_ = false;
     usize work_ = 0;
 };

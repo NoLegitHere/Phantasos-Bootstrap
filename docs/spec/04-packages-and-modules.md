@@ -74,22 +74,17 @@ build/<target>/<profile>/bin/<name>[.exe]  executables
 `<profile>` is `debug` or `release`.
 
 ## 4.5 Stage0 support
-**Current status:** stage0 is frontend-only. It provides `lex`, syntax-only
-`parse`, and `check` on single files. Checking includes structural validation,
-lexical resolution and the initial typing, call, alias, member and hierarchy
-checks described in chapter 3. Imports receive `E0304` from `check` until
-package loading is implemented. None of the package or workspace features
-in this chapter work yet.
+**Current status:** stage0 provides `lex`, syntax-only `parse`, and `check`,
+`gate` and `build` on single files. Imports receive `E0304` from `check`
+until package loading is implemented. None of the package or workspace
+features in this chapter work yet.
 
-**Planned scope** (milestone P2, required before the compiler is ported to
-Phantasos):
-- Manifest parsing for the TOML subset (strings, integers, booleans, string
-  arrays, inline tables, and tables).
-- Auto-discovery and workspaces.
-- The package DAG.
-- `.phsi` interface files.
-- Linking libs into a bin.
+**Planned scope** (before the compiler is ported to Phantasos, see
+[ADR 0003](../adr/0003-bootstrap-subset.md)): a directory of `.phs` files
+forms one package, with module paths and `import` as in 4.2 and the
+visibility rules of 3.8. Stage0 reads no manifest and builds no libraries;
+the whole program is compiled at once.
 
-Stage0 will never implement: the incremental cache, the lockfile, git
-dependencies, parallel builds, or cross-compilation. These belong to the
-self-hosted build tool.
+Manifests, workspaces, the package DAG, `.phsi` interface files, libraries,
+the incremental cache, the lockfile, git dependencies, parallel builds and
+cross-compilation belong to the self-hosted build tool.

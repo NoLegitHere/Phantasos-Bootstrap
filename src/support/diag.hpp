@@ -76,6 +76,8 @@ enum class DiagCode : u16 {
     ScalarLiteralRange = 402,
     IfWithoutElse = 403,
     NotOptional = 404,
+    NotIterable = 405,
+    RangeOutsideFor = 406,
     NotCallable = 410,
     NoMatchingCall = 411,
     AmbiguousCall = 412,
@@ -153,6 +155,8 @@ constexpr std::string_view diag_code(DiagCode code) {
         case DiagCode::ScalarLiteralRange: return "E0402";
         case DiagCode::IfWithoutElse: return "E0403";
         case DiagCode::NotOptional: return "E0404";
+        case DiagCode::NotIterable: return "E0405";
+        case DiagCode::RangeOutsideFor: return "E0406";
         case DiagCode::NotCallable: return "E0410";
         case DiagCode::NoMatchingCall: return "E0411";
         case DiagCode::AmbiguousCall: return "E0412";

@@ -366,6 +366,48 @@ void shared_descriptor_graph_relations() {
 }
 }  // namespace
 
+void array_members_and_loops() {
+    Frontend f;
+    f.check(R"(
+let bytes: [UInt8] = [1, 2]
+let count = bytes.count
+let empty = bytes.isEmpty
+let literalCount = [1, 2, 3].count
+fun last(values: inout [Int8]): Int8? = values.removeLast()
+fun grow(values: inout [Int8]) { values.append(1) }
+fun push(values: inout [[Int8]]) { values.append([]) }
+fun loops(names: [String], limit: UInt8) {
+    for name in names { print(name) }
+    for byte in [UInt8(1)] { print(Int(byte)) }
+    for small in 0..<limit { print(Int(small)) }
+    for index in 0..10 { print(index) }
+}
+)");
+    CHECK(f.value("count") == Type::Int && f.value("empty") == Type::Bool && f.value("literalCount") == Type::Int);
+    CHECK(f.result.scalar_types->binding(f.id("name", BindingKind::Local)) == Type::String);
+    CHECK(f.result.scalar_types->binding(f.id("byte", BindingKind::Local)) == Type::UInt8);
+    CHECK(f.result.scalar_types->binding(f.id("small", BindingKind::Local)) == Type::UInt8);
+    CHECK(f.result.scalar_types->binding(f.id("index", BindingKind::Local)) == Type::Int);
+    for (const auto& test : std::vector<std::pair<std::string_view, DiagCode>>{
+        {"let a = [1]\nlet bad = a.size", DiagCode::UnknownMember},
+        {"let a = [1]\nlet bad = a.append", DiagCode::UnknownMember},
+        {"fun f(a: inout [Int8]) { a.append(128) }", DiagCode::ScalarLiteralRange},
+        {"fun f(a: inout [Int]) { a.append(true) }", DiagCode::ScalarTypeMismatch},
+        {"fun f(a: inout [Int]) { a.append() }", DiagCode::NoMatchingCall},
+        {"fun f(a: inout [Int]) { a.append(value: 1) }", DiagCode::NoMatchingCall},
+        {"fun f(a: inout [Int]) { let x = a.removeLast(1) }", DiagCode::NoMatchingCall},
+        {"let a = [1]\nlet bad = a.clone()", DiagCode::UnknownMember},
+        {"fun f(n: Int) { for i in n {} }", DiagCode::NotIterable},
+        {"fun f(a: [Int]?) { for i in a {} }", DiagCode::NotIterable},
+        {"fun f() { for i in 1 {} }", DiagCode::NotIterable},
+        {"fun f() { for i in 0..<true {} }", DiagCode::InvalidScalarOperand},
+        {"fun f(a: Int8) { for i in a..<300 {} }", DiagCode::ScalarLiteralRange},
+        {"let r = 0..<3", DiagCode::RangeOutsideFor},
+        {"fun f() { for i in [0..<3] {} }", DiagCode::RangeOutsideFor},
+        {"fun f(a: [Int]) { for i in a { let x: Bool = i } }", DiagCode::ScalarTypeMismatch}
+    }) { Frontend bad; bad.check(test.first, {test.second}); }
+}
+
 int main() {
     canonical_annotations_and_aliases();
     contextual_arrays_and_indexing();
@@ -378,4 +420,5 @@ int main() {
     function_parameter_variance();
     bounded_type_names_and_mismatch_dags();
     shared_descriptor_graph_relations();
+    array_members_and_loops();
 }

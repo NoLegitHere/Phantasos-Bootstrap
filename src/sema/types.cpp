@@ -102,6 +102,8 @@ struct Declaration {
     u32 parameter = 0;
     // `if let x = opt` and `while let`: the binding holds the value inside init.
     bool unwrap = false;
+    // `for x in init`: the binding holds an element of an array or range.
+    bool iterate = false;
 };
 // One edge of the inference graph; a node's edges form a list in insertion order.
 struct Dependency {
@@ -377,6 +379,7 @@ public:
         result.function_arguments_ = std::move(function_arguments_);
         result.conversions_ = std::move(conversions_);
         result.members_ = std::move(members_);
+        result.array_members_ = std::move(array_members_);
         result.hierarchies_ = std::move(hierarchies_);
         result.aliases_ = std::move(aliases_);
         result.types_ = std::move(types_);
@@ -2188,6 +2191,29 @@ private:
         return kind == BindingKind::Field || kind == BindingKind::Variable || kind == BindingKind::Local ||
                kind == BindingKind::Parameter || kind == BindingKind::Pattern || kind == BindingKind::BuiltinValue;
     }
+    // `a.count`, `a.isEmpty`, and `a.append` and `a.removeLast` as callees (3.33).
+    std::optional<BindingId> array_member(const MemberExpr& member, CheckedMember record) {
+        const auto text = names_.str(member.name.sym);
+        const bool callee = direct_callees_.contains(&member);
+        std::optional<ArrayMember> kind;
+        if (text == "count") kind = ArrayMember::Count;
+        else if (text == "isEmpty") kind = ArrayMember::IsEmpty;
+        else if (text == "append") kind = ArrayMember::Append;
+        else if (text == "removeLast") kind = ArrayMember::RemoveLast;
+        const bool method = kind == ArrayMember::Append || kind == ArrayMember::RemoveLast;
+        if (kind && method && !callee) {
+            diag_.error(DiagCode::UnknownMember, member.name.span, "array method '{}' can only be called", text);
+            record.state = ResolutionState::Unresolved;
+        } else if (kind) array_members_[&member] = *kind;
+        else if (!clone_callees_.contains(&member)) {
+            // A built-in `a.clone()` is checked with its call (3.31).
+            diag_.error(DiagCode::UnknownMember, member.name.span, "type '{}' has no member '{}'",
+                        scalar_type_name(value(member.base).type), text);
+            record.state = ResolutionState::Unresolved;
+        }
+        members_[&member] = std::move(record);
+        return std::nullopt;
+    }
     std::optional<BindingId> prepare_reference(const Expr* expr) {
         const auto* name_expr = as<NameExpr>(expr);
         const auto* member = as<MemberExpr>(expr);
@@ -2237,7 +2263,7 @@ private:
                 }
             }
         } else {
-            const auto base = value(member->base);
+            auto base = value(member->base);
             const auto type = entity(member->base);
             if (base.type == Type::Error) record.state = ResolutionState::Unresolved;
             else if (type.state == ExpansionState::Resolved && type.target.valid() && !type.optional_depth &&
@@ -2246,6 +2272,10 @@ private:
                 record.type_receiver = true;
             } else if (base.type.kind == Type::Nominal && !base.type.optional_depth)
                 record.owner = types_.descriptor(base.type)->declaration;
+            if (!record.type_receiver && base.literal == Literal::Array && known(default_type(base)))
+                base = materialize(expressions_.at(member->base), default_type(base));
+            if (!record.type_receiver && base.type.kind == Type::Array && !base.type.optional_depth && base.literal == Literal::None)
+                return array_member(*member, std::move(record));
             if (base.type.kind == Type::Nominal && !base.type.optional_depth) record.receiver_type = base.type;
             else if (record.type_receiver) record.receiver_type = type.scalar;
             else if (symbolic(base.type) && !base.type.optional_depth) record.receiver_type = base.type;
@@ -2374,13 +2404,14 @@ private:
     Value value(const Expr* expr) const {
         return expr ? nodes_[expressions_.at(expr)].value : Value{Type::Unit};
     }
-    void declare(Name name, const TypeExpr* type, const Expr* init, bool unwrap = false) {
+    void declare(Name name, const TypeExpr* type, const Expr* init, bool unwrap = false, bool iterate = false) {
         const auto head = declarations_.find(name.span.lo);
         for (u32 i = head == declarations_.end() ? kNoDeclaration : head->second; i != kNoDeclaration; i = declaration_next_[i]) {
             auto& declared = declaration(i);
             declared.annotation = type;
             declared.init = init;
             declared.unwrap = unwrap;
+            declared.iterate = iterate;
         }
     }
     void destructure(const VarStmt& var) {
@@ -2483,7 +2514,9 @@ private:
             }
             case StmtKind::For: {
                 const auto& loop = *cast<ForStmt>(&stmt);
+                if (range(loop.iter)) loop_ranges_.insert(unparen(loop.iter));
                 push(loop.iter, returns);
+                declare(loop.var, nullptr, loop.iter, false, true);
                 push(loop.body, returns, true);
                 break;
             }
@@ -2989,6 +3022,10 @@ private:
             return {Expected::Known, parameters[argument]};
         }
         const Expr* receiver = unparen(call.callee);
+        if (const auto array = array_members_.find(receiver); array != array_members_.end()) {
+            if (array->second != ArrayMember::Append || call.args.size() != 1) return {Expected::Unmatched};
+            return {Expected::Known, types_.descriptor(value(cast<MemberExpr>(receiver)->base).type)->element};
+        }
         const auto named = callees(receiver);
         std::vector<BindingId> ids(named.begin(), named.end());
         // A primary constructor may be named through a type alias.
@@ -3431,6 +3468,33 @@ private:
         return {initial.type.element()};
     }
 
+    static bool range(const Expr* expr) {
+        const auto* binary = as<BinaryExpr>(unparen(expr));
+        return binary && (binary->op == BinOp::Range || binary->op == BinOp::RangeExcl);
+    }
+    // `for x in a` binds each element of an array; `for i in a..<b` and
+    // `for i in a..b` bind integers of the bounds' type (3.33).
+    Value iterated(const Declaration& declaration) {
+        const Expr* iter = declaration.init;
+        Value source = value(iter);
+        if (source.type == Type::Error || source.type == Type::Never) return source;
+        if (range(iter)) {
+            // A range's value is the type of its bounds.
+            if (source.literal != Literal::None) source = materialize(expressions_.at(iter), default_type(source));
+            return source;
+        }
+        if (source.literal == Literal::Array && known(default_type(source)))
+            source = materialize(expressions_.at(iter), default_type(source));
+        if (source.literal == Literal::None && !known(source.type)) return {};
+        if (source.literal != Literal::None || source.type.kind != Type::Array || source.type.optional_depth) {
+            diag_.error(DiagCode::NotIterable, iter->span, "'for' needs an array or a range, found '{}'",
+                        scalar_type_name(default_type(source)));
+            if (source.literal != Literal::None) materialize(expressions_.at(iter), default_type(source));
+            return {Type::Error};
+        }
+        return {types_.descriptor(source.type)->element};
+    }
+
     Value require(const Expr* expr, Type expected, Span span) {
         if (expr && known(expected) && branching(expr)) return require_branches(branching(expr), expected);
         if (expr) return compatible(expressions_.at(expr), expected, span);
@@ -3576,12 +3640,17 @@ private:
         }
         if (lhs.type == Type::Error || rhs.type == Type::Error) return {Type::Error};
         if (expr.op == BinOp::Coalesce) return coalesce(expr, lhs);
-        if (expr.op == BinOp::Range || expr.op == BinOp::RangeExcl) return {};
+        const bool ranges = expr.op == BinOp::Range || expr.op == BinOp::RangeExcl;
+        if (ranges && !loop_ranges_.contains(&expr)) {
+            // Ranges have no values of their own yet (3.33).
+            diag_.error(DiagCode::RangeOutsideFor, expr.span, "a range can only be the subject of a 'for' loop");
+            return {Type::Error};
+        }
         if (equality && (lhs.type.optional_depth || rhs.type.optional_depth || none_literal(expr.lhs) || none_literal(expr.rhs)))
             return optional_equality(expr, lhs, rhs);
         if (tuples || (equality && (lhs.type.optional_depth || rhs.type.optional_depth || lhs.type.kind >= Type::Nominal ||
                                     rhs.type.kind >= Type::Nominal || lhs.literal == Literal::Array || rhs.literal == Literal::Array))) return {};
-        const bool ints = expr.op == BinOp::Rem || expr.op == BinOp::WrapAdd || expr.op == BinOp::WrapSub ||
+        const bool ints = ranges || expr.op == BinOp::Rem || expr.op == BinOp::WrapAdd || expr.op == BinOp::WrapSub ||
                           expr.op == BinOp::WrapMul || expr.op == BinOp::BitOr || expr.op == BinOp::BitXor ||
                           expr.op == BinOp::BitAnd || expr.op == BinOp::Shl || expr.op == BinOp::Shr;
         const auto domain = ints ? OperandDomain::Integer : ordering ? OperandDomain::Ordered : OperandDomain::Numeric;
@@ -3987,6 +4056,38 @@ private:
         record.state = CallState::Resolved;
         return Value{base.type};
     }
+    // `a.append(x)` adds x, of the element type, at the end; `a.removeLast()`
+    // removes the last element and gives it, or `none` when a is empty (3.33).
+    std::optional<Value> prepare_array_method(const CallExpr& expr) {
+        const auto* member = as<MemberExpr>(unparen(expr.callee));
+        if (!member) return std::nullopt;
+        const auto found = array_members_.find(member);
+        if (found == array_members_.end()) return std::nullopt;
+        auto& record = calls_[&expr];
+        record.kind = CallKind::Array;
+        record.array = found->second;
+        record.receiver = member->base;
+        const Type element = types_.descriptor(value(member->base).type)->element;
+        const bool append = found->second == ArrayMember::Append;
+        const bool positional = std::ranges::all_of(expr.args, [](const Arg& arg) { return arg.label.sym.empty(); });
+        if (!positional || expr.args.size() != (append ? 1u : 0u)) {
+            if (append) diag_.error(DiagCode::NoMatchingCall, expr.span, "'append' takes one argument of type '{}'",
+                                    scalar_type_name(element));
+            else diag_.error(DiagCode::NoMatchingCall, expr.span, "'removeLast' takes no arguments");
+            for (const auto& arg : expr.args) value(arg.value);
+            record.state = CallState::Error;
+            return Value{Type::Error};
+        }
+        record.state = CallState::Resolved;
+        if (!append) return Value{element.optional()};
+        record.parameters = {0};
+        record.parameter_types = {element};
+        if (require(expr.args[0].value, element, expr.args[0].value->span).type == Type::Error) {
+            record.state = CallState::Error;
+            return Value{Type::Error};
+        }
+        return Value{Type::Unit};
+    }
     enum class Expansion : u8 { Yes, No, Deferred, Failed };
     // Strings, Copy scalars, function values and payload-free enums clone, as
     // do optionals, tuples and non-generic structs made of clonable parts.
@@ -4219,6 +4320,7 @@ private:
         if (auto conversion = prepare_conversion(expr)) return *conversion;
         if (auto builtin = prepare_builtin(expr)) return *builtin;
         if (auto clone = prepare_clone(expr)) return *clone;
+        if (auto method = prepare_array_method(expr)) return *method;
         if (auto constructor = prepare_constructor(expr)) return *constructor;
         auto& record = calls_[&expr];
         const Value callee = value(expr.callee);
@@ -4454,6 +4556,10 @@ private:
             node.value = unwrapped(declaration);
             return;
         }
+        if (!expr && declaration.iterate) {
+            node.value = iterated(declaration);
+            return;
+        }
         if (!expr) {
             const Type declared = annotation(declaration.annotation);
             Value initial = declaration.init ? value(declaration.init) : Value{};
@@ -4587,6 +4693,11 @@ private:
             case ExprKind::Name:
             case ExprKind::Member:
             case ExprKind::OptMember: {
+                if (const auto array = array_members_.find(expr); array != array_members_.end()) {
+                    if (array->second == ArrayMember::Count) node.value = {Type::Int};
+                    else if (array->second == ArrayMember::IsEmpty) node.value = {Type::Bool};
+                    break;
+                }
                 const auto it = members_.find(expr);
                 if (it != members_.end()) {
                     const auto& record = it->second;
@@ -4848,6 +4959,8 @@ private:
     std::unordered_set<u32> reported_applications_;
     std::vector<Node> nodes_;
     FlatSet<const Expr*> clone_callees_; // `x.clone` callees of calls without arguments
+    FlatSet<const Expr*> loop_ranges_;   // ranges that are the subject of a `for` loop
+    std::unordered_map<const Expr*, ArrayMember> array_members_;
     std::vector<Declaration> node_declarations_{1};  // entry 0: no declaration
     std::vector<Dependency> dependencies_{1};  // edge 0: none
     NodeMap<const Expr*, usize> expressions_;

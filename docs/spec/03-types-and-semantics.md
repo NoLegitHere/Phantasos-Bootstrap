@@ -1497,3 +1497,33 @@ place, such as `a + 1` or `p.x.clone()`, is a temporary and never overlaps;
 copying a value into a local first is the usual fix. Stage0 compares places
 by how they are written, so two class references to the same instance are
 not reported.
+
+## 3.33 Arrays [Core]
+
+`[T]` is an owned, growable array of `T` (3.1). Until the standard library
+exists, its members are built in:
+
+| Member | Type | Meaning |
+| --- | --- | --- |
+| `a.count` | `Int` | the number of elements |
+| `a.isEmpty` | `Bool` | whether `a.count` is 0 |
+| `a.append(x)` | `Unit` | adds `x` at the end; `x` has the element type and moves in |
+| `a.removeLast()` | `T?` | removes and gives the last element, or `none` when `a` is empty |
+
+`append` and `removeLast` change the array, so `a` must be a mutable place,
+as for a `mut fun` receiver (3.24): a `var` local, an `inout` parameter, or
+a `var` field of one. Calling them on a `let` array, a borrowed parameter or
+a temporary is `E0502`. They can only be called; `a.append` as a value, or
+any other member of an array, is `E0450`. A wrong number of arguments is
+`E0411`.
+
+`for x in a` runs its body once per element of the array `a`, in order,
+with `x` bound to that element. `x` is immutable and borrows the element,
+so moving it out, also into a closure that captures it, is `E0505`; use
+`x.clone()` to move a copy. `for i in lo..<hi` binds each integer from `lo`
+up to but not including `hi`, and `for i in lo..hi` includes `hi`. Both
+bounds have the same integer type, which is `i`'s type; integer literals
+default to `Int`. Subjects of any other type are `E0405`. A range has no
+value of its own yet, so `a..<b` or `a..b` anywhere but as the subject of a
+`for` loop is `E0406`. Changing an array while a `for` loop runs over it is
+not checked yet.

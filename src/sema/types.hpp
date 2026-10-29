@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <optional>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -152,8 +153,12 @@ struct ScalarSignature {
 enum class CallState : u8 { Resolved, Deferred, Error };
 // Builtin is a prelude function such as print, whose target is its BuiltinValue
 // binding and whose parameter_types hold the selected overload. Clone is the
-// built-in `x.clone()`, with no target and `x` as its receiver (3.31).
-enum class CallKind : u8 { Function, NumericConversion, NominalConstructor, IndirectFunction, Method, Builtin, Clone };
+// built-in `x.clone()`, with no target and `x` as its receiver (3.31). Array
+// is a built-in array method, with no target, the array as its receiver and
+// the method in `array` (3.33).
+enum class CallKind : u8 { Function, NumericConversion, NominalConstructor, IndirectFunction, Method, Builtin, Clone, Array };
+// The built-in members of `[T]` (3.33).
+enum class ArrayMember : u8 { Count, IsEmpty, Append, RemoveLast };
 struct CheckedMember {
     ResolutionState state = ResolutionState::Deferred;
     BindingId owner;
@@ -201,6 +206,7 @@ struct CheckedCall {
     std::vector<ScalarType> parameter_types; // selected signature after receiver/function substitution
     bool inferred_type_arguments = false;
     ScalarType result;  // a call through `?.`: the method's own result, before it is made optional
+    ArrayMember array = ArrayMember::Count;  // the method of an Array call
 };
 
 struct CheckedConstraint {
@@ -256,6 +262,11 @@ public:
         const auto it = members_.find(expr);
         return it == members_.end() ? nullptr : &it->second;
     }
+    // A built-in member of an array, such as `a.count` or the callee of `a.append(x)`.
+    std::optional<ArrayMember> array_member(const ast::Expr* expr) const {
+        const auto it = array_members_.find(expr);
+        return it == array_members_.end() ? std::nullopt : std::optional{it->second};
+    }
     const ExpandedType* alias(BindingId id) const { return aliases_.alias(id); }
     const CheckedHierarchy* hierarchy(BindingId id) const {
         const auto it = hierarchies_.find(id.value);
@@ -287,6 +298,7 @@ private:
     std::unordered_map<const ast::Expr*, BindingId> functions_;
     std::unordered_map<const ast::Expr*, std::vector<ScalarType>> function_arguments_;
     NodeMap<const ast::Expr*, CheckedMember> members_;
+    std::unordered_map<const ast::Expr*, ArrayMember> array_members_;
     IdMap<CheckedHierarchy> hierarchies_;
     AliasExpansion aliases_;
     TypeTable types_;

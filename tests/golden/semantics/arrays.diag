@@ -1,0 +1,60 @@
+arrays.phs:25:5: error[E0502]: cannot call 'append' because 'fixed' is immutable
+   25 |     fixed.append(3)
+      |     ^^^^^^^^^^^^
+arrays.phs:24:9: note: declared with 'let' here
+   24 |     let fixed = [1, 2]
+      |         ^^^^^
+arrays.phs:26:16: error[E0502]: cannot call 'removeLast' because 'fixed' is immutable
+   26 |     let last = fixed.removeLast()
+      |                ^^^^^^^^^^^^^^^^
+arrays.phs:24:9: note: declared with 'let' here
+   24 |     let fixed = [1, 2]
+      |         ^^^^^
+arrays.phs:27:5: error[E0502]: cannot call 'append' because 'values' is read-only
+   27 |     values.append(1)
+      |     ^^^^^^^^^^^^^
+arrays.phs:23:16: note: parameters are read-only unless declared 'inout'
+   23 | fun mutability(values: [Int], bag: Bag) {
+      |                ^^^^^^
+arrays.phs:28:5: error[E0502]: cannot call 'append' because 'bag' is read-only
+   28 |     bag.items.append("x")
+      |     ^^^^^^^^^^^^^^^^
+arrays.phs:23:31: note: parameters are read-only unless declared 'inout'
+   23 | fun mutability(values: [Int], bag: Bag) {
+      |                               ^^^
+arrays.phs:29:5: error[E0502]: cannot call 'append' on a temporary array
+   29 |     [1].append(2)
+      |     ^^^^^^^^^^
+arrays.phs:35:30: error[E0505]: cannot move out of loop element 'word'
+   35 |     for word in words { take(word) }
+      |                              ^^^^
+arrays.phs:35:30: note: use 'word.clone()' to move a copy
+   35 |     for word in words { take(word) }
+      |                              ^^^^
+arrays.phs:37:25: error[E0502]: cannot assign to immutable 'word'
+   37 |     for word in words { word = "x" }
+      |                         ^^^^
+arrays.phs:37:9: note: bound here; only 'var' locals can be reassigned
+   37 |     for word in words { word = "x" }
+      |         ^^^^
+arrays.phs:38:38: error[E0505]: cannot move out of loop element 'word'
+   38 |     for word in words { let f = { -> word.clone() } }
+      |                                      ^^^^
+arrays.phs:38:38: note: capture a copy made with 'word.clone()' instead
+   38 |     for word in words { let f = { -> word.clone() } }
+      |                                      ^^^^
+arrays.phs:39:37: error[E0505]: cannot move out of an element
+   39 |     for i in 0..<words.count { take(words[i]) }
+      |                                     ^^^^^^^^
+arrays.phs:39:37: note: use '.clone()' to move a copy
+   39 |     for i in 0..<words.count { take(words[i]) }
+      |                                     ^^^^^^^^
+arrays.phs:46:10: error[E0504]: 's' is used after it was moved
+   46 |     take(s)
+      |          ^
+arrays.phs:45:17: note: moved here
+   45 |     kept.append(s)
+      |                 ^
+arrays.phs:44:9: note: declared here with type 'String', which is not Copy
+   44 |     let s = "s"
+      |         ^

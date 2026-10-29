@@ -662,6 +662,13 @@ void optionals() {
     CHECK(result("struct S(let a: Int?, let b: Int)\nfun or(x: Int?, y: Int): Int = x ?? y\n"
                  "fun main(): Int {\n    let s = S(4, 5)\n    let t: (Int?, Int) = (6, 7)\n"
                  "    return or(1, 0) + or(s.a, 0) + or(t.0, 0) + or(none, 20)\n}\n") == 1 + 4 + 6 + 20);
+    // A used `if` without `else` is `none` when no condition holds.
+    CHECK(result("fun main(): Int {\n    let x: Int? = if false { 5 } else if false { 6 }\n"
+                 "    let y: Int? ? = if true { if true { x } } else { none }\n    return (x ?? 9) + ((y ?? none) ?? 20)\n}\n") == 9 + 20);
+    // Checked conversions are `none` when the value does not fit.
+    CHECK(result("fun main(): Int {\n    let big: UInt = 18446744073709551615\n"
+                 "    return Int(Int8.checked(1000) ?? 1) + Int(UInt8.checked(-1) ?? 2) + (Int.checked(big) ?? 4) +\n"
+                 "        Int.truncating(UInt.checked(8) ?? 0)\n}\n") == 1 + 2 + 4 + 8);
     // `!` reads the value, or panics with the expression's location.
     CHECK(result("fun main(): Int {\n    let x: Int? ? = 4\n    return x!! + 1\n}\n") == 5);
     Frontend p;

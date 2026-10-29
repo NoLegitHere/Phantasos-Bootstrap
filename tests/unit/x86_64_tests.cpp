@@ -702,6 +702,11 @@ void optionals() {
            "    let flag: Int = if s.b ?? false { 100 } else { 0 }\n"
            "    return (s.a ?? 0) + Int(t.0 ?? UInt8(0)) + (f(9) ?? 0) + flag\n}\n");
     agrees("fun main(): Int {\n    let x: Int? ? = 4\n    return x!! + 1\n}\n");
+    agrees("fun main(): Int {\n    let x: Int? = if false { 5 } else if false { 6 }\n"
+           "    let y: Int? ? = if true { if true { x } } else { none }\n    return (x ?? 9) + ((y ?? none) ?? 20)\n}\n");
+    agrees("fun main(): Int {\n    let big: UInt = 18446744073709551615\n"
+           "    return Int(Int8.checked(1000) ?? 1) + Int(UInt8.checked(-1) ?? 2) + (Int.checked(big) ?? 4) +\n"
+           "        Int.truncating(UInt.checked(8) ?? 0) + Int(Int16.checked(-300) ?? 0)\n}\n");
     agrees("fun main(): Int {\n    let x: Int8? = none\n    return Int(x!)\n}\n");
 }
 

@@ -16,7 +16,8 @@
 // Optionals: if let and while let, ?? with plain and optional fallbacks, !,
 // equality with none, values and other optionals, nested optionals, values
 // lifted into optional parameters, results, fields and tuple elements, and
-// optionals of structs, Strings, tuples and function values.
+// optionals of structs, Strings, tuples and function values, `if` without
+// `else` as an optional, and checked integer conversions.
 
 struct Point(let x: Int, let y: Int)
 
@@ -95,5 +96,14 @@ fun main(): Int {
     let lifted: fun(Int) -> Int? = { n -> n }
     print(lifted(6) ?? 0)
     print(find(5)! + nearest(1)!.y + shallow!!)
+
+    let skipped: Int? = if count > 100 { 1 }
+    let chained: Int? = if count > 100 { 1 } else if count > 50 { 2 }
+    let nested: Int? ? = if count > 1 { if count > 2 { a } } else { none }
+    print((skipped ?? 30) + (chained ?? 40) + ((nested ?? none) ?? 0))
+    print(Int(Int8.checked(100) ?? 0) + Int(Int8.checked(1000) ?? 1))
+    print(UInt.checked(-5) ?? 4)
+    let largest: UInt = 18446744073709551615
+    print(Int.checked(largest) ?? -1)
     return or_zero(find(10))
 }

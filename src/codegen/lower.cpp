@@ -377,9 +377,12 @@ private:
         return checked && checked->kind == CallKind::Method &&
                mutating(*cast<FunItem>(resolution_.binding(checked->target).item));
     }
-    // A used branch's type is that of its first tail with a value, or of the
-    // tail that is the deepest optional, since the others lift to it.
+    // A used branch's type is the one its context expects, when the checker
+    // knows it; otherwise that of its first tail with a value, or of the tail
+    // that is the deepest optional, since the others lift to it.
     Type branch_type(const Expr* root) {
+        if (const auto own = scalar(root); own.kind != ScalarType::Deferred && own.kind != ScalarType::Error)
+            return lower_type(own);
         std::vector<const Expr*> work{root};
         std::optional<ScalarType> found;
         while (!work.empty()) {
@@ -693,19 +696,20 @@ private:
     }
 
     // Blocks and `if` chains. Recursion follows syntactic nesting; `else if`
-    // chains are iterative.
-    Reg branch(const Expr* root, bool used) {
+    // chains are iterative. A nested branch whose value is the result takes
+    // the result's type, as when an `if` without `else` is a block's tail.
+    Reg branch(const Expr* root, bool used, std::optional<Type> want = {}) {
         root = unparen(root);
         if (const auto* block = as<BlockExpr>(root)) {
             const usize count = block->stmts.size();
             for (usize i = 0; i < count; ++i) {
                 const auto* tail = used && i + 1 == count ? as<ExprStmt>(block->stmts[i]) : nullptr;
-                if (tail) return any(tail->expr);
+                if (tail) return control(tail->expr) ? branch(tail->expr, true, want ? want : branch_type(root)) : value(tail->expr);
                 statement(*block->stmts[i]);
             }
             return {};
         }
-        const auto type = used ? branch_type(root) : Type::Unit;
+        const auto type = !used ? Type::Unit : want ? *want : branch_type(root);
         const Reg result = has_value(type) ? reg(type) : Reg{};
         const u32 join = block();
         for (const auto* next = cast<IfExpr>(root); next;) {
@@ -715,13 +719,15 @@ private:
             end(Term::CondBr, cond, then, other);
             current_ = then;
             bind(next->cond, tested);
-            copy(result, branch(next->then_block, used));
+            copy(result, branch(next->then_block, used, type));
             end(Term::Br, {}, join);
             current_ = other;
             const Expr* rest = next->else_branch;
             next = rest ? as<IfExpr>(rest) : nullptr;
             if (!next) {
-                if (rest) copy(result, branch(rest, used));
+                if (rest) copy(result, branch(rest, used, type));
+                // Without `else`, a used `if` is `none` when no condition holds (3.24).
+                else if (result.valid() && is_optional(type)) emit({.op = Op::None, .dst = result});
                 end(Term::Br, {}, join);
             }
         }
@@ -1243,6 +1249,7 @@ private:
         const Type type = lower_type(scalar(&call));
         if (const CheckedConversion* conversion = types_.conversion(&call)) {
             if (!args.front().valid()) return {};
+            if (is_optional(type)) return checked_conversion(args.front(), type);
             if (type == lower_type(concrete(conversion->source))) return args.front();
             const Reg dst = reg(type);
             emit({.op = conversion->kind == ConversionKind::Truncating ? Op::Truncate : Op::Widen, .dst = dst,
@@ -1319,6 +1326,35 @@ private:
         if (type == Type::Never) end(Term::Unreachable);
         else if (inout) rebuild(receiver, owners);
         return dst;
+    }
+
+    // `T.checked(x)`: x as a T when it fits, else `none`. It fits when
+    // truncating keeps its bits and, between 64-bit types of different
+    // signedness, when it is not negative as the signed one.
+    Reg checked_conversion(Reg source, Type type) {
+        const Type from = fun_->regs[source.id], to = program_.layouts[layout_index(type)].fields[1];
+        const Reg narrowed = reg(to), fits = reg(Type::Bool);
+        emit({.op = Op::Truncate, .dst = narrowed, .a = source});
+        emit({.op = Op::Eq, .dst = fits, .a = narrowed, .b = source});
+        Reg ok = fits;
+        if (bit_width(to) == 64 && bit_width(from) == 64 && is_signed(from) != is_signed(to)) {
+            const Reg signed_value = is_signed(from) ? source : narrowed;
+            const Reg sign = reg(Type::Bool);
+            emit({.op = Op::Ge, .dst = sign, .a = signed_value, .b = constant(fun_->regs[signed_value.id], 0)});
+            ok = reg(Type::Bool);
+            emit({.op = Op::And, .dst = ok, .a = fits, .b = sign});
+        }
+        const Reg result = reg(type);
+        const u32 then = block(), other = block(), join = block();
+        end(Term::CondBr, ok, then, other);
+        current_ = then;
+        copy(result, narrowed);
+        end(Term::Br, {}, join);
+        current_ = other;
+        emit({.op = Op::None, .dst = result});
+        end(Term::Br, {}, join);
+        current_ = join;
+        return result;
     }
 
     // The method that runs for interface method `requirement` on a struct

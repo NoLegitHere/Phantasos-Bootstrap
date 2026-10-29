@@ -39,6 +39,8 @@ enum Partial {
     some(Int)
 }
 
+struct Void(value: Empty)
+
 enum Dead {
     dead(Never)
     live
@@ -49,7 +51,7 @@ enum Opt<T> {
     nothing
 }
 
-fun covered(t: Tok, flag: Bool?, e: Empty, o: Opt<Int>, z: Empty?): Int {
+fun covered(t: Tok, flag: Bool?, e: Empty, o: Opt<Int>, z: Empty?, v: Void, w: (Int, Empty)): Int {
     let a = match t {
         .num(n) -> n
         .pair(a, true) | .pair(a, false) -> a
@@ -63,11 +65,13 @@ fun covered(t: Tok, flag: Bool?, e: Empty, o: Opt<Int>, z: Empty?): Int {
         false -> 2
     }
     let c: Int = match e {}
+    let r: Int = match v {}
+    let s: Int = match w {}
     let p = match Partial.some(1) { .some(n) -> n }
     let q = match z { none -> 0 }
     // Generic enums are not checked yet.
     let d = match o { .some(n) -> n }
-    return a + b + c + d + p + q
+    return a + b + c + d + p + q + r + s
 }
 
 fun missingCase(t: Tok): Int {

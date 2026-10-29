@@ -1637,8 +1637,9 @@ and `.pair(_, false)` together cover `.pair`.
 - An arm with a guard covers nothing, since its guard may be false.
 - A case whose payload no value has, such as one holding an enum without
   cases or `Never`, needs no arm, and neither does the present value of
-  an optional of such a type. So an enum without cases is covered by a
-  `match` without arms. Generic instances count as having values.
+  an optional of such a type. A `match` on a type no value has, such as
+  an enum without cases or a struct holding one, needs no arms. Generic
+  instances count as having values.
 
 An arm whose values are all matched by the arms before it, or that only
 matches cases no value has, never runs, and is warned about (`E0408`).

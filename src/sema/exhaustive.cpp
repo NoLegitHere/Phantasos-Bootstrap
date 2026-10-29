@@ -172,6 +172,9 @@ private:
             if (inhabited(type.element())) return {true, {kNone, kSome}};
             return {true, {kNone}};
         }
+        // A type no value has, such as a struct holding an empty enum, has
+        // no values to cover.
+        if (!inhabited(type)) return {true, {}};
         if (type.kind == Type::Bool) return {true, {kFalse, kTrue}};
         const BindingId id = enum_of(type);
         if (!id.valid()) return {};

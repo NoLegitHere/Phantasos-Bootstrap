@@ -419,6 +419,9 @@ private:
             return {Access::Immutable, "captured " + subject, binding.name.span, "a closure captures a read-only copy of it"};
         switch (binding.kind) {
             case BindingKind::Local: {
+                // Like a borrowed parameter, a loop element cannot be changed through (3.33).
+                if (loop_elements_.contains(binding.name.span.lo))
+                    return {Access::ReadOnly, subject, binding.name.span, "a 'for' binding borrows each element"};
                 const auto* found = local(id);
                 if (!found) return {Access::Immutable, subject, binding.name.span, "bound here"};
                 if (!found->decl) return {Access::Immutable, subject, found->declared, "bound by a 'let' condition here"};

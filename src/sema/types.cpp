@@ -3491,8 +3491,11 @@ private:
             if (source.literal != Literal::None) source = materialize(expressions_.at(iter), default_type(source));
             return source;
         }
-        if (source.literal == Literal::Array && known(default_type(source)))
+        // An array literal whose elements are still inferred stays deferred.
+        if (source.literal == Literal::Array) {
+            if (!known(default_type(source))) return {};
             source = materialize(expressions_.at(iter), default_type(source));
+        }
         if (source.literal == Literal::None && !known(source.type)) return {};
         if (source.literal != Literal::None || source.type.kind != Type::Array || source.type.optional_depth) {
             diag_.error(DiagCode::NotIterable, iter->span, "'for' needs an array or a range, found '{}'",

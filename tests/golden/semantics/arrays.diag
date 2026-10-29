@@ -1,69 +1,81 @@
-arrays.phs:25:5: error[E0502]: cannot call 'append' because 'fixed' is immutable
-   25 |     fixed.append(3)
+arrays.phs:30:5: error[E0502]: cannot call 'append' because 'fixed' is immutable
+   30 |     fixed.append(3)
       |     ^^^^^^^^^^^^
-arrays.phs:24:9: note: declared with 'let' here
-   24 |     let fixed = [1, 2]
+arrays.phs:29:9: note: declared with 'let' here
+   29 |     let fixed = [1, 2]
       |         ^^^^^
-arrays.phs:26:16: error[E0502]: cannot call 'removeLast' because 'fixed' is immutable
-   26 |     let last = fixed.removeLast()
+arrays.phs:31:16: error[E0502]: cannot call 'removeLast' because 'fixed' is immutable
+   31 |     let last = fixed.removeLast()
       |                ^^^^^^^^^^^^^^^^
-arrays.phs:24:9: note: declared with 'let' here
-   24 |     let fixed = [1, 2]
+arrays.phs:29:9: note: declared with 'let' here
+   29 |     let fixed = [1, 2]
       |         ^^^^^
-arrays.phs:27:5: error[E0502]: cannot call 'append' because 'values' is read-only
-   27 |     values.append(1)
+arrays.phs:32:5: error[E0502]: cannot call 'append' because 'values' is read-only
+   32 |     values.append(1)
       |     ^^^^^^^^^^^^^
-arrays.phs:23:16: note: parameters are read-only unless declared 'inout'
-   23 | fun mutability(values: [Int], bag: Bag) {
+arrays.phs:28:16: note: parameters are read-only unless declared 'inout'
+   28 | fun mutability(values: [Int], bag: Bag) {
       |                ^^^^^^
-arrays.phs:28:5: error[E0502]: cannot call 'append' because 'bag' is read-only
-   28 |     bag.items.append("x")
+arrays.phs:33:5: error[E0502]: cannot call 'append' because 'bag' is read-only
+   33 |     bag.items.append("x")
       |     ^^^^^^^^^^^^^^^^
-arrays.phs:23:31: note: parameters are read-only unless declared 'inout'
-   23 | fun mutability(values: [Int], bag: Bag) {
+arrays.phs:28:31: note: parameters are read-only unless declared 'inout'
+   28 | fun mutability(values: [Int], bag: Bag) {
       |                               ^^^
-arrays.phs:29:5: error[E0502]: cannot call 'append' on a temporary array
-   29 |     [1].append(2)
+arrays.phs:34:5: error[E0502]: cannot call 'append' on a temporary array
+   34 |     [1].append(2)
       |     ^^^^^^^^^^
-arrays.phs:32:5: error[E0502]: cannot assign to 'count', which an array computes
-   32 |     owned.items.count = 0
+arrays.phs:37:5: error[E0502]: cannot assign to 'count', which an array computes
+   37 |     owned.items.count = 0
       |     ^^^^^^^^^^^^^^^^^
-arrays.phs:36:5: error[E0502]: cannot call 'append' because 'maybe' is read-only
-   36 |     maybe?.append(1)
+arrays.phs:41:5: error[E0502]: cannot call 'append' because 'maybe' is read-only
+   41 |     maybe?.append(1)
       |     ^^^^^^^^^^^^^
-arrays.phs:35:13: note: parameters are read-only unless declared 'inout'
-   35 | fun chained(maybe: [Int]?, held: inout [Int]?): Int? {
+arrays.phs:40:13: note: parameters are read-only unless declared 'inout'
+   40 | fun chained(maybe: [Int]?, held: inout [Int]?): Int? {
       |             ^^^^^
-arrays.phs:42:30: error[E0505]: cannot move out of loop element 'word'
-   42 |     for word in words { take(word) }
+arrays.phs:47:30: error[E0505]: cannot move out of loop element 'word'
+   47 |     for word in words { take(word) }
       |                              ^^^^
-arrays.phs:42:30: note: use 'word.clone()' to move a copy
-   42 |     for word in words { take(word) }
+arrays.phs:47:30: note: use 'word.clone()' to move a copy
+   47 |     for word in words { take(word) }
       |                              ^^^^
-arrays.phs:44:25: error[E0502]: cannot assign to immutable 'word'
-   44 |     for word in words { word = "x" }
+arrays.phs:49:25: error[E0502]: cannot assign to immutable 'word'
+   49 |     for word in words { word = "x" }
       |                         ^^^^
-arrays.phs:44:9: note: bound here; only 'var' locals can be reassigned
-   44 |     for word in words { word = "x" }
+arrays.phs:49:9: note: bound here; only 'var' locals can be reassigned
+   49 |     for word in words { word = "x" }
       |         ^^^^
-arrays.phs:45:38: error[E0505]: cannot move out of loop element 'word'
-   45 |     for word in words { let f = { -> word.clone() } }
+arrays.phs:50:38: error[E0505]: cannot move out of loop element 'word'
+   50 |     for word in words { let f = { -> word.clone() } }
       |                                      ^^^^
-arrays.phs:45:38: note: capture a copy made with 'word.clone()' instead
-   45 |     for word in words { let f = { -> word.clone() } }
+arrays.phs:50:38: note: capture a copy made with 'word.clone()' instead
+   50 |     for word in words { let f = { -> word.clone() } }
       |                                      ^^^^
-arrays.phs:46:37: error[E0505]: cannot move out of an element
-   46 |     for i in 0..<words.count { take(words[i]) }
+arrays.phs:51:37: error[E0505]: cannot move out of an element
+   51 |     for i in 0..<words.count { take(words[i]) }
       |                                     ^^^^^^^^
-arrays.phs:46:37: note: use '.clone()' to move a copy
-   46 |     for i in 0..<words.count { take(words[i]) }
+arrays.phs:51:37: note: use '.clone()' to move a copy
+   51 |     for i in 0..<words.count { take(words[i]) }
       |                                     ^^^^^^^^
-arrays.phs:53:10: error[E0504]: 's' is used after it was moved
-   53 |     take(s)
+arrays.phs:55:23: error[E0502]: cannot call 'mut fun bump' because 'cell' is read-only
+   55 |     for cell in all { cell.bump() }
+      |                       ^^^^^^^^^
+arrays.phs:55:9: note: a 'for' binding borrows each element
+   55 |     for cell in all { cell.bump() }
+      |         ^^^^
+arrays.phs:56:23: error[E0502]: cannot assign to field 'n' because 'cell' is read-only
+   56 |     for cell in all { cell.n = 1 }
+      |                       ^^^^^^
+arrays.phs:56:9: note: a 'for' binding borrows each element
+   56 |     for cell in all { cell.n = 1 }
+      |         ^^^^
+arrays.phs:63:10: error[E0504]: 's' is used after it was moved
+   63 |     take(s)
       |          ^
-arrays.phs:52:17: note: moved here
-   52 |     kept.append(s)
+arrays.phs:62:17: note: moved here
+   62 |     kept.append(s)
       |                 ^
-arrays.phs:51:9: note: declared here with type 'String', which is not Copy
-   51 |     let s = "s"
+arrays.phs:61:9: note: declared here with type 'String', which is not Copy
+   61 |     let s = "s"
       |         ^

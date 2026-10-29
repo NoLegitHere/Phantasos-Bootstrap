@@ -386,6 +386,8 @@ fun loops(names: [String], limit: UInt8) {
     for small in 0..<limit { print(Int(small)) }
     for index in 0..10 { print(index) }
 }
+fun opaque<T: Copy>(): Int = 1
+fun pending() { for n in [opaque<Int>()] {} }
 )");
     CHECK(f.value("count") == Type::Int && f.value("empty") == Type::Bool && f.value("literalCount") == Type::Int);
     CHECK(f.value("chainedCount") == Type{Type::Int}.optional() && f.value("chainedEmpty") == Type{Type::Bool}.optional());

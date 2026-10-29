@@ -1521,9 +1521,10 @@ optional array, `a?.count` and `a?.append(x)` work as `?.` does for fields
 and methods (3.6).
 
 `for x in a` runs its body once per element of the array `a`, in order,
-with `x` bound to that element. `x` is immutable and borrows the element,
-so moving it out, also into a closure that captures it, is `E0505`; use
-`x.clone()` to move a copy. `for i in lo..<hi` binds each integer from `lo`
+with `x` bound to that element. `x` borrows the element like a borrowed
+parameter: assigning to it or through it, or calling a `mut fun` on it, is
+`E0502`, and moving it out, also into a closure that captures it, is
+`E0505`; use `x.clone()` to move a copy. `for i in lo..<hi` binds each integer from `lo`
 up to but not including `hi`, and `for i in lo..hi` includes `hi`. Both
 bounds have the same integer type, which is `i`'s type; integer literals
 default to `Int`. Subjects of any other type are `E0405`. A range has no

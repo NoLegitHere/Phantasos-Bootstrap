@@ -18,6 +18,11 @@
 
 struct Bag(var items: [String])
 
+class Cell {
+    var n: Int = 0
+    mut fun bump() { n += 1 }
+}
+
 fun take(s: own String) {}
 
 fun mutability(values: [Int], bag: Bag) {
@@ -44,6 +49,11 @@ fun elements(words: [String]) {
     for word in words { word = "x" }
     for word in words { let f = { -> word.clone() } }
     for i in 0..<words.count { take(words[i]) }
+}
+
+fun cells(all: [Cell]) {
+    for cell in all { cell.bump() }
+    for cell in all { cell.n = 1 }
 }
 
 fun moves() {

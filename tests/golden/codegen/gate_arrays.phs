@@ -13,17 +13,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Arrays stage0 cannot compile yet: growing or shrinking them, `for` loops,
-// comparisons, arrays of Unit and structs that hold themselves through an
-// array.
+// Arrays stage0 cannot compile yet: `append` and `removeLast` through `?.`,
+// comparisons, arrays of Unit, loops over them and structs that hold
+// themselves through an array.
 
 struct Tree(let kids: [Tree])
 
 fun main() {
     var a = [1, 2]
-    a.append(3)
-    let last = a.removeLast()
-    for x in a { print(x) }
+    var maybe: [Int]? = [3]
+    maybe?.append(4)
+    let last = maybe?.removeLast()
+    for u in [()] {}
     let same: Bool = a == [1, 2]
     let o: [Int]? = none
     let missing: Bool = o != none

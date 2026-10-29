@@ -752,6 +752,28 @@ void arrays() {
                   "fun main() {}\n", "bc");
 }
 
+void growth_and_loops() {
+    // Growth from empty and from a literal, copying elements of every size;
+    // removeLast; loops over arrays and ranges at the type's limits.
+    agrees("struct Big(var a: Int, var b: Int, var c: Int)\n"
+           "fun main(): Int {\n    var bigs: [Big] = []\n    var flags = [true]\n    var small: [Int8] = []\n"
+           "    for i in 0..<40 {\n        bigs.append(Big(i, i + 1, i + 2))\n        flags.append(i % 3 == 0)\n"
+           "        small.append(Int8.truncating(i))\n    }\n    var total = 0\n"
+           "    for b in bigs { total += b.c }\n    for f in flags { if f { total += 1000 } }\n"
+           "    for x in small { total += Int(x) * 100000 }\n"
+           "    let last = bigs.removeLast()\n    total += (last?.a ?? 0) * 10000000\n"
+           "    var empty: [Big] = []\n    if let gone = empty.removeLast() { total += gone.a } else { total += 1 }\n"
+           "    return total + bigs.count\n}\n");
+    agrees("fun main(): Int {\n    var n = 0\n    let top: UInt8 = 255\n    for b in UInt8(250)..top { n += Int(b) }\n"
+           "    let max: Int8 = 127\n    for c in Int8(125)..max { n += Int(c) * 1000 }\n"
+           "    for i in 5..4 { n += 1 }\n    for i in 0..<10 {\n        if i == 3 { continue }\n"
+           "        if i == 6 { break }\n        n += i * 1000000\n    }\n    return n\n}\n");
+    agrees("fun main(): Int {\n    var words = [\"a\"]\n    for i in 0..<100 { words.append(\"bc\") }\n"
+           "    var grid: [[Int]] = [[], [1]]\n    grid[0].append(7)\n    grid[0].append(8)\n"
+           "    var a = [1, 2]\n    for x in a { a.append(x) }\n"
+           "    return words.count + grid[0][1] * 1000 + a.count * 100000\n}\n");
+}
+
 int main() {
     object_layout();
     programs();
@@ -761,6 +783,7 @@ int main() {
     optionals();
     optional_chaining();
     arrays();
+    growth_and_loops();
     random_expressions();
     std::println("x86_64 tests passed");
 }

@@ -1058,7 +1058,8 @@ the subset, so that nothing half-checked reaches code generation:
   assignment and compound assignment to locals, to `self` in a `mut fun`,
   and to fields of either at any depth, tuple and array elements included; tuple
   destructuring with `let (a, b) = e` and `var (a, b) = e`; `if`, `while`, `loop`, `break`,
-  `continue` and `return`, with `if let` and `while let` conditions.
+  `continue` and `return`, with `if let` and `while let` conditions; `for`
+  over arrays and ranges (3.33).
 - **Expressions.** Integer, Boolean and string literals, `()`, local and
   parameter names, parentheses, direct calls to top-level functions, generic
   ones with explicit or inferred type arguments that are value types of the
@@ -1066,8 +1067,8 @@ the subset, so that nothing half-checked reaches code generation:
   (3.27), integer conversions, primary constructors of supported structs,
   reads of their fields, calls to their methods with an explicit or implicit
   receiver, `self` and bare field names inside methods, tuple literals and
-  `.0` element reads, array literals, `a[i]` element reads, `count` and
-  `isEmpty` (3.33), top-level functions named as values (3.14), generic
+  `.0` element reads, array literals, `a[i]` element reads, `count`,
+  `isEmpty`, `append` and `removeLast` (3.33), top-level functions named as values (3.14), generic
   ones included, with inferred or explicit type arguments, closures
   (3.29) and calls of function values, unary `-`, `!` and `~`, arithmetic including
   the wrapping forms, `&`, `|`, `^`, comparisons, `&&` and `||`, `none`, `??`, `!`,
@@ -1076,16 +1077,16 @@ the subset, so that nothing half-checked reaches code generation:
   `String`. Used `if` and block
   results are allowed where their type is known (3.24).
 
-Everything else reports `E0600`. That includes shifts, `for`, `defer`,
+Everything else reports `E0600`. That includes shifts, `defer`,
 `throw`, `match`, `unsafe` blocks, operators on strings, string interpolation,
-floating-point values, `append` and `removeLast`, comparisons of tuples, of
+floating-point values, `?.` calls of `append` and `removeLast`, comparisons of tuples, of
 arrays and of optionals of anything but scalars, `?.` calls of generic, interface or `mut fun` methods, classes, enums, values of an interface type, generic
 interfaces, interfaces that extend others, `where` clauses, members other
 than struct fields, method calls, `count` and `isEmpty`, method values, globals, operators on function values,
 and values of `where`-constrained functions. A closure's body is
 checked like a function body. A `mut fun` call
 needs a receiver rooted in a local, `self` or a field of `self`, as an
-assignment does. A local whose
+assignment does, and so do `append` and `removeLast`. A local whose
 type is still deferred also reports `E0600` and needs an annotation. One
 `E0600` is reported per construct, and uses of a rejected local are not
 reported again.
@@ -1129,8 +1130,8 @@ before it evaluates `e`. Assignment to a field of a local struct, such as
 that point; `p.a.x op= e` reads `p.a.x` first. Indices in an assigned place
 are evaluated before the value, so `a[i] = e` evaluates `i`, then `e`, then
 checks that `i` is in bounds and stores. A method call evaluates its
-receiver before its arguments, except that a `mut fun` receiver is a place:
-the indices in it are evaluated first, it is read when the call starts,
+receiver before its arguments, except that a `mut fun` receiver, and the
+array of `append` or `removeLast`, is a place: the indices in it are evaluated first, it is read when the call starts,
 after the arguments, and the method's changes reach it when the call
 returns. A call of a function value evaluates
 the function value before its arguments. `&&` and `||` evaluate their right operand only when
@@ -1150,7 +1151,10 @@ function's value has a null environment. The x86_64 backend calls it through a
 thunk (abi.md A.6). An array in MIR is three words: a pointer to its
 elements, its count and its capacity (abi.md A.2). An array literal
 allocates its elements, which are never freed in stage0, and copying an
-array copies only the three words. A closure becomes a MIR function of its own, named after
+array copies only the three words. `append` on a full array moves its
+elements to new memory with twice the capacity, or 4 when the capacity was
+0. A `for` loop over an array reads the array and its count once, before
+the first iteration. A closure becomes a MIR function of its own, named after
 the function that creates it, a `$closure` suffix and its number there, so
 the first closure in `main` is `main$closure0`. It takes its environment
 first. Creating the closure allocates the environment and copies each
@@ -1543,7 +1547,10 @@ parameter: assigning to it or through it, or calling a `mut fun` on it, is
 `E0505`; use `x.clone()` to move a copy. `for i in lo..<hi` binds each integer from `lo`
 up to but not including `hi`, and `for i in lo..hi` includes `hi`. Both
 bounds have the same integer type, which is `i`'s type; integer literals
-default to `Int`. Subjects of any other type are `E0405`. A range has no
+default to `Int`. Both bounds are evaluated once, before the first
+iteration, and the loop ends without overflow when `hi` is the type's
+maximum. Subjects of any other type are `E0405`. A range has no
 value of its own yet, so `a..<b` or `a..b` anywhere but as the subject of a
 `for` loop is `E0406`. Changing an array while a `for` loop runs over it is
-not checked yet.
+not checked yet; in stage0, the loop runs once for each element the array
+had when it started, so appending in the body does not extend it.

@@ -90,7 +90,7 @@ foundation. Complete.
   - [x] Optional chaining (`?.`).
   - [x] Arrays in `check`: built-in members and `for` over arrays and ranges.
   - [x] Array values in code generation, with bounds checks.
-  - [ ] `append` growth and `for` loops in code generation.
+  - [x] `append` growth and `for` loops in code generation.
   - [ ] Moves, `.clone()` and generics for arrays and optionals.
   - [ ] Samples and run tests.
 - [ ] Generic base substitution and built-in traits: generic base and

@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <format>
 #include <limits>
 #include <string>
@@ -199,6 +200,24 @@ private:
                     regs[inst.dst.id] = aggregates_.size() - 1;
                     continue;
                 }
+                if (inst.op == Op::Reserve) {
+                    // A full array moves to a new buffer; copies keep the old one.
+                    const Type type = fun.regs[inst.a.id];
+                    CHECK(mir::is_aggregate(type) && fun.regs[inst.dst.id] == type);
+                    CHECK(program_.layouts[mir::layout_index(type)].kind == mir::Layout::Array);
+                    auto header = aggregates_[regs[inst.a.id]];
+                    CHECK(header[1] <= header[2]);
+                    if (header[1] == header[2]) {
+                        std::vector<u64> elements(header[2] ? header[2] * 2 : 4);
+                        if (header[0]) std::copy_n(buffers_[header[0] - 1].begin(), header[1], elements.begin());
+                        buffers_.push_back(std::move(elements));
+                        header[0] = buffers_.size();
+                        header[2] = buffers_.back().size();
+                    }
+                    aggregates_.push_back(std::move(header));
+                    regs[inst.dst.id] = aggregates_.size() - 1;
+                    continue;
+                }
                 if (inst.op == Op::Load || inst.op == Op::Store) {
                     // Lowering checks bounds before every access.
                     const Type type = fun.regs[inst.a.id];
@@ -311,7 +330,7 @@ private:
                     case Op::Truncate: out = normalize(type, a); break;
                     case Op::Call: case Op::Print: case Op::Make: case Op::Field: case Op::With:
                     case Op::FnRef: case Op::CallIndirect: case Op::Closure: case Op::Env: case Op::None:
-                    case Op::Array: case Op::Load: case Op::Store: break;
+                    case Op::Array: case Op::Load: case Op::Store: case Op::Reserve: break;
                 }
                 if (trap) return {true, 0, trap};
                 regs[inst.dst.id] = out;

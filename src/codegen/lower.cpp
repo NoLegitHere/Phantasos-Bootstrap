@@ -402,10 +402,12 @@ private:
         const CheckedCall* checked = types_.call(&call);
         return checked && checked->kind == CallKind::IndirectFunction;
     }
+    // A `mut fun` call, or `append` or `removeLast`: its receiver is a place.
     bool mutating_call(const CallExpr& call) const {
         const CheckedCall* checked = types_.call(&call);
-        return checked && checked->kind == CallKind::Method &&
-               mutating(*cast<FunItem>(resolution_.binding(checked->target).item));
+        return checked && (checked->kind == CallKind::Array ||
+                           (checked->kind == CallKind::Method &&
+                            mutating(*cast<FunItem>(resolution_.binding(checked->target).item))));
     }
     // A used branch's type is the one its context expects, when the checker
     // knows it; otherwise that of its first tail with a value, or of the tail
@@ -611,6 +613,7 @@ private:
                 current_ = exit;
                 return;
             }
+            case StmtKind::For: for_loop(*cast<ForStmt>(&stmt)); return;
             case StmtKind::Expr: {
                 const Expr* expr = cast<ExprStmt>(&stmt)->expr;
                 if (control(expr)) (void)branch(expr, false);
@@ -619,6 +622,116 @@ private:
             }
             default: PHS_ASSERT(false && "statement outside the code generation subset");
         }
+    }
+
+    // `for x in a` reads the array once, then each element below the count
+    // it had then, in order. `for i in lo..<hi` and `for i in lo..hi` read
+    // both bounds once; the inclusive loop tests for its last value before
+    // stepping, so a bound at the type's maximum does not overflow. Each
+    // iteration binds a fresh copy, and `continue` goes to the step.
+    void for_loop(const ForStmt& loop) {
+        const auto id = values_.at(loop.var.span.lo);
+        const Type type = lower_type(binding_type(id));
+        const auto* range = as<BinaryExpr>(unparen(loop.iter));
+        if (range && range->op != BinOp::Range && range->op != BinOp::RangeExcl) range = nullptr;
+        Reg array, counter, limit;
+        if (range) {
+            // The lower bound is kept before the upper one runs, which can assign it.
+            const Reg lo = any(range->lhs);
+            // A diverging bound has already ended the block.
+            if (!lo.valid()) return;
+            counter = reg(type);
+            copy(counter, lo);
+            const Reg hi = any(range->rhs);
+            if (!hi.valid()) return;
+            limit = reg(type);
+            copy(limit, hi);
+        } else {
+            const Reg iterated = any(loop.iter);
+            if (!iterated.valid()) return;
+            array = snapshot(iterated);
+            counter = constant(Type::U64, 0);
+            const Reg count = reg(Type::I64);
+            emit({.op = Op::Field, .dst = count, .a = array, .imm = 1});
+            limit = reg(Type::U64);
+            emit({.op = Op::Widen, .dst = limit, .a = count});
+        }
+        const bool inclusive = range && range->op == BinOp::Range;
+        const u32 head = block(), body = block(), step = block(), exit = block();
+        end(Term::Br, {}, head);
+        current_ = head;
+        const Reg more = reg(Type::Bool);
+        emit({.op = inclusive ? Op::Le : Op::Lt, .dst = more, .a = counter, .b = limit});
+        end(Term::CondBr, more, body, exit);
+        current_ = body;
+        const Reg bound = reg(type);
+        locals_[id.value] = bound;
+        if (array.valid()) emit({.op = Op::Load, .dst = bound, .a = array, .b = counter});
+        else copy(bound, counter);
+        loops_.push_back({step, exit});
+        (void)branch(loop.body, false);
+        loops_.pop_back();
+        end(Term::Br, {}, step);
+        current_ = step;
+        if (inclusive) {
+            const Reg last = reg(Type::Bool);
+            const u32 next = block();
+            emit({.op = Op::Eq, .dst = last, .a = counter, .b = limit});
+            end(Term::CondBr, last, exit, next);
+            current_ = next;
+        }
+        // Below the limit, so the step cannot overflow.
+        emit({.op = Op::WrapAdd, .dst = counter, .a = counter, .b = constant(fun_->regs[counter.id], 1)});
+        end(Term::Br, {}, head);
+        current_ = exit;
+    }
+
+    // `a.append(x)` makes room for one more element, then stores x after the
+    // last one; `a.removeLast()` is `none` on an empty array and otherwise
+    // the last element, which leaves the array. Either writes the array back
+    // to its place, whose indices were evaluated before the arguments.
+    Reg array_call(const CallExpr& call, const std::vector<Reg>& args) {
+        const CheckedCall& checked = *types_.call(&call);
+        Place receiver = std::move(receivers_.at(&call));
+        if (receiver.diverged) return {};
+        // A diverging argument has already ended the block.
+        for (const Reg arg : args)
+            if (!arg.valid()) return {};
+        auto owners = read(receiver, receiver.steps.size());
+        const Reg array = owners.back();
+        const Reg count = reg(Type::I64);
+        if (checked.array == ArrayMember::Append) {
+            emit({.op = Op::Reserve, .dst = array, .a = array});
+            emit({.op = Op::Field, .dst = count, .a = array, .imm = 1});
+            const Reg grown = reg(Type::I64), at = reg(Type::U64);
+            emit({.op = Op::Add, .dst = grown, .a = count, .b = constant(Type::I64, 1)});
+            emit({.op = Op::With, .dst = array, .a = array, .b = grown, .imm = 1});
+            emit({.op = Op::Truncate, .dst = at, .a = count});
+            emit({.op = Op::Store, .a = array, .b = at, .args = {args.front()}});
+            rebuild(receiver, owners);
+            return {};
+        }
+        PHS_ASSERT(checked.array == ArrayMember::RemoveLast);
+        const Reg result = reg(lower_type(scalar(&call))), empty = reg(Type::Bool);
+        emit({.op = Op::Field, .dst = count, .a = array, .imm = 1});
+        emit({.op = Op::Eq, .dst = empty, .a = count, .b = constant(Type::I64, 0)});
+        const u32 then = block(), other = block(), join = block();
+        end(Term::CondBr, empty, then, other);
+        current_ = then;
+        emit({.op = Op::None, .dst = result});
+        end(Term::Br, {}, join);
+        current_ = other;
+        const Reg last = reg(Type::I64), at = reg(Type::U64);
+        emit({.op = Op::Sub, .dst = last, .a = count, .b = constant(Type::I64, 1)});
+        emit({.op = Op::Truncate, .dst = at, .a = last});
+        const Reg value = reg(program_.layouts[layout_index(fun_->regs[array.id])].element);
+        emit({.op = Op::Load, .dst = value, .a = array, .b = at});
+        emit({.op = Op::With, .dst = array, .a = array, .b = last, .imm = 1});
+        rebuild(receiver, owners);
+        copy(result, value);
+        end(Term::Br, {}, join);
+        current_ = join;
+        return result;
     }
 
     // A field or element of a local or of the receiver, possibly nested: the
@@ -1159,8 +1272,8 @@ private:
                     const bool method = checked && ((checked->kind == CallKind::Method && !mutating_call(call)) ||
                                                     checked->kind == CallKind::Clone);
                     const usize first = method || indirect(call) ? 1 : 0;
-                    // A `mut fun` receiver's place, with its indices, comes
-                    // before the arguments.
+                    // A `mut fun`, `append` or `removeLast` receiver's place,
+                    // with its indices, comes before the arguments.
                     if (stage == 0 && mutating_call(call))
                         receivers_[&call] = checked->receiver ? place(checked->receiver) : Place{self_, {}};
                     if (stage < first) {
@@ -1265,6 +1378,10 @@ private:
                         work.push_back(cast<WhileStmt>(&stmt)->body);
                         break;
                     case StmtKind::Loop: work.push_back(cast<LoopStmt>(&stmt)->body); break;
+                    case StmtKind::For:
+                        work.push_back(cast<ForStmt>(&stmt)->iter);
+                        work.push_back(cast<ForStmt>(&stmt)->body);
+                        break;
                     case StmtKind::Expr: work.push_back(cast<ExprStmt>(&stmt)->expr); break;
                     case StmtKind::Assign:
                         work.push_back(cast<AssignStmt>(&stmt)->target);
@@ -1505,6 +1622,7 @@ private:
             if (args.front().valid()) emit({.op = Op::Print, .a = args.front()});
             return {};
         }
+        if (checked.kind == CallKind::Array) return array_call(call, args);
         if (checked.kind == CallKind::Clone) {
             // Nothing owns heap memory yet, so a clone is the value itself (3.31).
             return args.front();

@@ -567,7 +567,22 @@ private:
                 return;
             case StmtKind::Break: case StmtKind::Continue: return;
             case StmtKind::Throw: unsupported(stmt.span, "'throw'"); return;
-            case StmtKind::For: unsupported(stmt.span, "'for' loops"); return;
+            case StmtKind::For: {
+                // Over an array, or over a range's bounds; the binding holds a value.
+                const auto& loop = *cast<ForStmt>(&stmt);
+                const auto it = values_.find(loop.var.span.lo);
+                if (it == values_.end() || !stored(loop.var.span, types_.binding(it->second), "locals")) {
+                    if (it != values_.end()) rejected_.insert(it->second.value);
+                    return;
+                }
+                work.push_back({loop.body, false});
+                const auto* range = as<BinaryExpr>(unparen(loop.iter));
+                if (range && (range->op == BinOp::Range || range->op == BinOp::RangeExcl)) {
+                    work.push_back({range->rhs, true});
+                    work.push_back({range->lhs, true});
+                } else work.push_back({loop.iter, true});
+                return;
+            }
             case StmtKind::Defer: unsupported(stmt.span, "'defer'"); return;
             case StmtKind::While: {
                 const auto& loop = *cast<WhileStmt>(&stmt);
@@ -854,7 +869,21 @@ private:
             return;
         }
         if (checked && checked->kind == CallKind::Array) {
-            unsupported(call.callee->span, "'append' and 'removeLast'");
+            // `append` and `removeLast` change their receiver in place.
+            if (checked->state != CallState::Resolved) {
+                unsupported_type(call.span, ScalarType{});
+                return;
+            }
+            if (unparen(call.callee)->kind == ExprKind::OptMember) {
+                unsupported(call.callee->span, "'?.' calls of 'append' and 'removeLast'");
+                return;
+            }
+            if (!place(checked->receiver)) {
+                unsupported(checked->receiver->span, "'append' and 'removeLast' on anything but a local variable or its fields");
+                return;
+            }
+            for (usize i = call.args.size(); i-- > 0;) work.push_back({call.args[i].value, true});
+            work.push_back({checked->receiver, true});
             return;
         }
         if (checked && checked->kind == CallKind::Clone) {

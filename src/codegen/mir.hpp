@@ -83,6 +83,8 @@ enum class Op : u8 {
     Array,    // a new array of type dst holding args; with no args, every byte zero
     Load,     // element b of the array a; b is a U64 below its count
     Store,    // element b of the array a becomes args[0]; b is a U64 below its count
+    Reserve,  // the array a with room for one more element: a full one's elements move to new
+              // memory with twice the capacity, or 4 when it was 0
 };
 
 struct Inst {

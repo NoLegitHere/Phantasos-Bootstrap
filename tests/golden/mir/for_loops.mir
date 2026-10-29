@@ -1,0 +1,92 @@
+array @[Int] { data: u64 +0, count: i64 +8, capacity: i64 +16 } size 24 align 8 element i64
+
+optional @i64? { some: bool +8, value: i64 +0 } size 16 align 8
+
+fun @main() -> i64 entry {
+bb0:
+    %0: @[Int] = array
+    %1: @[Int] = copy %0
+    %2: i64 = const 1
+    %1: @[Int] = reserve %1
+    %3: i64 = field %1, count
+    %6: i64 = const 1
+    %4: i64 = add %3, %6
+    %1: @[Int] = with %1, count, %4
+    %5: u64 = truncate %3
+    store %1, %5, %2
+    %7: i64 = field %1, count
+    %10: i64 = const 0
+    %9: bool = eq %7, %10
+    condbr %9, bb1, bb16
+bb1:
+    %8: @i64? = none
+    br bb2
+bb2:
+    %15: bool = field %8, some
+    condbr %15, bb3, bb15
+bb3:
+    %16: i64 = field %8, value
+    %17: i64 = copy %16
+    br bb4
+bb4:
+    %19: i64 = copy %17
+    %20: i64 = const 2
+    %21: i64 = const 3
+    %22: @[Int] = array %20, %21
+    %23: @[Int] = copy %22
+    %24: u64 = const 0
+    %25: i64 = field %23, count
+    %26: u64 = widen %25
+    br bb5
+bb5:
+    %27: bool = lt %24, %26
+    condbr %27, bb6, bb8
+bb6:
+    %28: i64 = load %23, %24
+    %19: i64 = add %19, %28
+    br bb7
+bb7:
+    %29: u64 = const 1
+    %24: u64 = wadd %24, %29
+    br bb5
+bb8:
+    %30: i64 = const 1
+    %31: i64 = copy %30
+    %32: i64 = const 3
+    %33: i64 = copy %32
+    br bb9
+bb9:
+    %34: bool = le %31, %33
+    condbr %34, bb10, bb12
+bb10:
+    %35: i64 = copy %31
+    %36: i64 = const 2
+    %37: bool = eq %35, %36
+    condbr %37, bb11, bb14
+bb11:
+    %38: bool = eq %31, %33
+    condbr %38, bb12, bb13
+bb12:
+    ret %19
+bb13:
+    %39: i64 = const 1
+    %31: i64 = wadd %31, %39
+    br bb9
+bb14:
+    %19: i64 = add %19, %35
+    br bb11
+bb15:
+    %18: i64 = const 0
+    %17: i64 = copy %18
+    br bb4
+bb16:
+    %13: i64 = const 1
+    %11: i64 = sub %7, %13
+    %12: u64 = truncate %11
+    %14: i64 = load %1, %12
+    %1: @[Int] = with %1, count, %11
+    %40: bool = const true
+    %41: @i64? = make %40, %14
+    %8: @i64? = copy %41
+    br bb2
+}
